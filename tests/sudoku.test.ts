@@ -4,6 +4,7 @@ import { computeStandings, createLeague } from "@/lib/server/leagues";
 import { applyMove, createRoom, endRoom, finalizeIfDone, joinRoom, leaveRoom, roomView, startRoom } from "@/lib/server/rooms";
 import { selectBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
 import {
+  completedUnits,
   countClues,
   countSolutions,
   DIFFICULTIES,
@@ -13,6 +14,21 @@ import {
   solvableWithSingles,
 } from "@/lib/sudoku/engine";
 import { parseInviteCode } from "@/lib/sudoku/invite";
+import {
+  comboMultiplier,
+  dailyDifficulty,
+  dailySeed,
+  dayKey,
+  emptyProgress,
+  levelInfo,
+  liveStreak,
+  nextStreak,
+  solveXp,
+  starsFor,
+  unlockedBy,
+  XP_BASE,
+  xpForLevel,
+} from "@/lib/sudoku/progress";
 import { monthKey, scoreMatch, shiftMonth } from "@/lib/sudoku/tournament";
 
 function validSolution(grid: string): boolean {
@@ -172,5 +188,90 @@ describe("invites", () => {
     assert.equal(selectBackend({ VERCEL: "1" }), "unconfigured");
     assert.equal(selectBackend({ VERCEL: "1", BLOB_READ_WRITE_TOKEN: "t" }), "blob");
     assert.equal(selectBackend({}), "file");
+  });
+});
+
+describe("unit completion", () => {
+  const { solution } = generatePuzzle("easy", 4242);
+
+  it("detects a completed row, column and box independently", () => {
+    // Fill only row 0: completing cell 4 finishes the row but not its column or box.
+    const row = Array.from(solution, (ch, i) => (i < 9 ? ch : "0")).join("");
+    assert.deepEqual(completedUnits(row, 4).map((u) => u.kind), ["row"]);
+
+    const col = Array.from(solution, (ch, i) => (i % 9 === 2 ? ch : "0")).join("");
+    assert.deepEqual(completedUnits(col, 2 + 9 * 5).map((u) => u.kind), ["col"]);
+
+    const boxCells = [60, 61, 62, 69, 70, 71, 78, 79, 80];
+    const box = Array.from(solution, (ch, i) => (boxCells.includes(i) ? ch : "0")).join("");
+    const units = completedUnits(box, 70);
+    assert.deepEqual(units.map((u) => [u.kind, u.index]), [["box", 8]]);
+    assert.deepEqual([...units[0].cells].sort((a, b) => a - b), boxCells);
+  });
+
+  it("reports double and triple clears from one placement", () => {
+    // Row 0 + column 0 + box 0 all filled: placing cell 0 clears three units.
+    const full = Array.from(solution, (ch, i) =>
+      Math.floor(i / 9) === 0 || i % 9 === 0 || (Math.floor(i / 9) < 3 && i % 9 < 3) ? ch : "0",
+    ).join("");
+    assert.equal(completedUnits(full, 0).length, 3);
+    assert.equal(completedUnits(full, 1).length, 2); // row 0 + box 0; column 1 is incomplete
+    assert.equal(completedUnits(full, 40).length, 0); // empty cell
+  });
+
+  it("returns nothing when the unit still has gaps", () => {
+    const almost = solution.slice(0, 8) + "0" + "0".repeat(72);
+    assert.equal(completedUnits(almost, 3).length, 0);
+  });
+});
+
+describe("progression", () => {
+  it("awards XP for solves, flawless play, combos and the daily", () => {
+    assert.equal(solveXp({ difficulty: "easy", mistakes: 1, maxCombo: 0 }).total, XP_BASE.easy);
+    const best = solveXp({ difficulty: "hard", mistakes: 0, maxCombo: 6, daily: true });
+    assert.equal(best.total, XP_BASE.hard + Math.round(XP_BASE.hard * 0.5) + 6 * 5 + 50);
+    assert.equal(best.lines.length, 4);
+  });
+
+  it("maps XP to levels and titles", () => {
+    assert.equal(levelInfo(0).level, 1);
+    assert.equal(levelInfo(49).level, 1);
+    assert.equal(levelInfo(50).level, 2);
+    assert.equal(levelInfo(xpForLevel(10)).title, "Grid Ninja");
+    const mid = levelInfo(xpForLevel(4) + 10);
+    assert.equal(mid.level, 4);
+    assert.ok(mid.progress > 0 && mid.progress < 1);
+  });
+
+  it("rates solves with 1–3 stars", () => {
+    assert.equal(starsFor("medium", 0, 60_000), 3);
+    assert.equal(starsFor("medium", 2, 60_000), 2);
+    assert.equal(starsFor("medium", 2, 60 * 60_000), 1);
+  });
+
+  it("builds combo multipliers", () => {
+    assert.deepEqual([1, 3, 4, 7, 8, 20].map(comboMultiplier), [1, 1, 2, 2, 3, 3]);
+  });
+
+  it("gives everyone the same daily puzzle and keeps streaks", () => {
+    const key = dayKey(Date.UTC(2026, 9, 4, 20, 0), "Asia/Singapore"); // 5 Oct in Singapore
+    assert.equal(key, "2026-10-05");
+    assert.equal(dailySeed(key), dailySeed("2026-10-05"));
+    assert.notEqual(dailySeed(key), dailySeed("2026-10-06"));
+    assert.equal(dailyDifficulty("2026-10-04"), "expert"); // Sunday
+    assert.equal(dailyDifficulty("2026-10-05"), "easy"); // Monday
+
+    assert.equal(nextStreak({ streak: 4, lastDaily: "2026-10-04" }, "2026-10-05"), 5);
+    assert.equal(nextStreak({ streak: 4, lastDaily: "2026-10-05" }, "2026-10-05"), 4);
+    assert.equal(nextStreak({ streak: 4, lastDaily: "2026-10-01" }, "2026-10-05"), 1);
+    assert.equal(nextStreak({ streak: 4, lastDaily: "2026-09-30" }, "2026-10-01"), 5); // across a month
+    assert.equal(liveStreak({ streak: 4, lastDaily: "2026-10-03" }, "2026-10-05"), 0);
+  });
+
+  it("unlocks achievements once", () => {
+    const p = { ...emptyProgress(), solves: 1 };
+    const ids = unlockedBy(p, { solved: { difficulty: "expert", mistakes: 0, elapsedMs: 4 * 60_000 }, unitsAtOnce: 3 });
+    assert.deepEqual(ids.sort(), ["expert", "first-solve", "flawless", "speedster", "triple"]);
+    assert.deepEqual(unlockedBy({ ...p, achievements: ids }, { unitsAtOnce: 3 }), []);
   });
 });

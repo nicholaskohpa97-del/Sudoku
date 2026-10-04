@@ -36,7 +36,7 @@ export function NameForm({
       }}
     >
       <div className="flex-1">
-        <Field label="Display name">
+        <Field label="Player name">
           <input
             className={inputStyles}
             value={name}
@@ -62,10 +62,11 @@ export function NameGate({ title, children }: { title: string; children: React.R
   if (!ready) return null;
   if (player) return <>{children}</>;
   return (
-    <div className="mx-auto max-w-md space-y-4 rounded-2xl border border-white/10 bg-white/[0.035] p-6">
-      <h1 className="font-display text-3xl">{title}</h1>
-      <p className="text-sm text-stone-400">
-        Pick the name your friends will see. No sign-up, email or password — it&apos;s remembered on this device.
+    <div className="animate-rise mx-auto max-w-md space-y-4 rounded-3xl border-2 border-pink-300/40 bg-gradient-to-b from-pink-500/15 to-white/[0.02] p-6 shadow-[0_0_40px_-12px_rgb(244_114_182/0.6)]">
+      <p className="text-4xl">🎮</p>
+      <h1 className="font-display text-3xl font-bold">{title}</h1>
+      <p className="text-sm font-semibold text-stone-300">
+        Pick the name your friends will see. No sign-up needed. It&apos;s remembered on this device.
       </p>
       <NameForm submitLabel="Continue" />
     </div>
