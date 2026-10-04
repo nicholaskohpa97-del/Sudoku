@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, formatDuration, post, usePlayer } from "@/lib/sudoku/client";
 import { DIFFICULTIES, DIFFICULTY_CONFIG, MAX_MISTAKES, type Difficulty } from "@/lib/sudoku/engine";
+import { parseInviteCode } from "@/lib/sudoku/invite";
 import { loadStats, type SoloStats } from "@/lib/sudoku/stats";
 import {
   DEFAULT_ROOM_PLAYERS,
@@ -213,20 +214,21 @@ function MultiplayerSection({ show }: { show: ShowToast }) {
         className="space-y-2 border-t border-white/10 pt-5"
         onSubmit={(e) => {
           e.preventDefault();
-          const code = joinCode.trim().toUpperCase();
-          if (code) router.push(`/sudoku/room/${encodeURIComponent(code)}`);
+          const code = parseInviteCode(joinCode);
+          if (code) router.push(`/sudoku/room/${code}`);
         }}
       >
         <Field label="Join a room">
           <div className="flex gap-2">
             <input
               className={`${inputStyles} font-mono tracking-widest uppercase`}
-              placeholder="ABC123"
+              placeholder="Code or invite link"
               value={joinCode}
-              maxLength={6}
+              autoCapitalize="characters"
+              autoComplete="off"
               onChange={(e) => setJoinCode(e.target.value)}
             />
-            <button type="submit" className={buttonStyles.secondary} disabled={!joinCode.trim()}>
+            <button type="submit" className={buttonStyles.secondary} disabled={!parseInviteCode(joinCode)}>
               Join
             </button>
           </div>
@@ -309,20 +311,21 @@ function TournamentSection({ show }: { show: ShowToast }) {
         className="space-y-2"
         onSubmit={(e) => {
           e.preventDefault();
-          const code = joinCode.trim().toUpperCase();
-          if (code) router.push(`/sudoku/league/${encodeURIComponent(code)}`);
+          const code = parseInviteCode(joinCode);
+          if (code) router.push(`/sudoku/league/${code}`);
         }}
       >
         <Field label="Join with a code">
           <div className="flex gap-2">
             <input
               className={`${inputStyles} font-mono tracking-widest uppercase`}
-              placeholder="XYZ789"
+              placeholder="Code or invite link"
               value={joinCode}
-              maxLength={6}
+              autoCapitalize="characters"
+              autoComplete="off"
               onChange={(e) => setJoinCode(e.target.value)}
             />
-            <button type="submit" className={buttonStyles.secondary} disabled={!joinCode.trim()}>
+            <button type="submit" className={buttonStyles.secondary} disabled={!parseInviteCode(joinCode)}>
               Open
             </button>
           </div>

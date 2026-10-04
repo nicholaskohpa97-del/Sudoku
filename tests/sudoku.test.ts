@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { computeStandings, createLeague } from "@/lib/server/leagues";
 import { applyMove, createRoom, endRoom, finalizeIfDone, joinRoom, leaveRoom, roomView, startRoom } from "@/lib/server/rooms";
-import type { Db, PlayerRecord, RoomRecord } from "@/lib/server/store";
+import { selectBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
 import {
   countClues,
   countSolutions,
@@ -12,6 +12,7 @@ import {
   MAX_MISTAKES,
   solvableWithSingles,
 } from "@/lib/sudoku/engine";
+import { parseInviteCode } from "@/lib/sudoku/invite";
 import { monthKey, scoreMatch, shiftMonth } from "@/lib/sudoku/tournament";
 
 function validSolution(grid: string): boolean {
@@ -155,5 +156,21 @@ describe("multiplayer rooms", () => {
   it("enrols invitees into the room's league", () => {
     const { db, league } = setup(3, true);
     assert.equal(db.leagues[league!.code].memberIds.length, 3);
+  });
+});
+
+describe("invites", () => {
+  it("parses bare codes and pasted invite links", () => {
+    assert.equal(parseInviteCode("abc123"), "ABC123");
+    assert.equal(parseInviteCode("  ab-c 12 3 "), "ABC123");
+    assert.equal(parseInviteCode("https://sudoku.example.com/sudoku/room/XYZ789"), "XYZ789");
+    assert.equal(parseInviteCode("Join me! https://x.app/sudoku/league/k7pq2m?ref=1"), "K7PQ2M");
+    assert.equal(parseInviteCode(""), "");
+  });
+
+  it("refuses the read-only file backend on Vercel", () => {
+    assert.equal(selectBackend({ VERCEL: "1" }), "unconfigured");
+    assert.equal(selectBackend({ VERCEL: "1", BLOB_READ_WRITE_TOKEN: "t" }), "blob");
+    assert.equal(selectBackend({}), "file");
   });
 });

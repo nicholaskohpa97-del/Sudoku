@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Copy, Share2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PEERS } from "@/lib/sudoku/engine";
@@ -100,3 +101,43 @@ export function Field({ label, children }: { label: string; children: React.Reac
 
 export const inputStyles =
   "w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2.5 text-stone-100 placeholder:text-stone-500 outline-none focus:border-amber-300/70";
+
+/**
+ * Copy-link and native-share buttons for an invite. Copy always works
+ * (falls back to a prompt when the clipboard is blocked); Share is offered
+ * only where the Web Share API exists, and cancelling it changes nothing.
+ */
+export function InviteButtons({ path, title, text }: { path: string; title: string; text: string }) {
+  const [copied, setCopied] = useState(false);
+  const isClient = useIsClient();
+  const url = isClient ? `${window.location.origin}${path}` : path;
+  const canShare = isClient && typeof navigator.share === "function";
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        className={buttonStyles.secondary}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1800);
+          } catch {
+            prompt("Copy this invite link:", url);
+          }
+        }}
+      >
+        {copied ? <Check className="size-4" /> : <Copy className="size-4" />} {copied ? "Copied!" : "Copy invite link"}
+      </button>
+      {canShare ? (
+        <button
+          type="button"
+          className={buttonStyles.secondary}
+          onClick={() => navigator.share({ title, text, url }).catch(() => {})}
+        >
+          <Share2 className="size-4" /> Share
+        </button>
+      ) : null}
+    </div>
+  );
+}

@@ -16,7 +16,7 @@ import {
 } from "@/lib/sudoku/tournament";
 import { DEFAULT_ROOM_PLAYERS, MAX_ROOM_PLAYERS, MIN_ROOM_PLAYERS, type LeagueView, type RoomView } from "@/lib/sudoku/types";
 import { NameGate } from "./NameGate";
-import { BackLink, buttonStyles, Field, inputStyles, Panel, Toast, useToast } from "./ui";
+import { BackLink, buttonStyles, Field, inputStyles, InviteButtons, Panel, Toast, useToast } from "./ui";
 
 export function LeagueScreen({ code }: { code: string }) {
   return (
@@ -96,7 +96,11 @@ function LeagueBody({ code }: { code: string }) {
           </p>
         </div>
         {league.isMember ? (
-          <InviteLink code={league.code} name={league.name} />
+          <InviteButtons
+            path={`/sudoku/league/${league.code}`}
+            title={league.name}
+            text={`Join my Sudoku tournament "${league.name}"`}
+          />
         ) : (
           <button
             type="button"
@@ -316,31 +320,5 @@ function LeagueBody({ code }: { code: string }) {
       </div>
       <Toast toast={toast} />
     </div>
-  );
-}
-
-function InviteLink({ code, name }: { code: string; name: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className={buttonStyles.secondary}
-      onClick={async () => {
-        const url = `${window.location.origin}/sudoku/league/${code}`;
-        if (typeof navigator.share === "function") {
-          navigator.share({ title: name, text: `Join my Sudoku tournament "${name}"`, url }).catch(() => {});
-          return;
-        }
-        try {
-          await navigator.clipboard.writeText(url);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1800);
-        } catch {
-          prompt("Copy this invite link:", url);
-        }
-      }}
-    >
-      {copied ? "Link copied" : "Invite friends"}
-    </button>
   );
 }

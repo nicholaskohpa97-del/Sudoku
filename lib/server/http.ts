@@ -1,14 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { HttpError } from "./errors";
 import { read, type PlayerRecord } from "./store";
 
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { HttpError };
 
 export function json<T>(data: T, status = 200): Response {
   return Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -64,9 +58,7 @@ export function cleanName(value: unknown): string {
   return name;
 }
 
-export function normaliseCode(value: string): string {
-  return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
+export { normaliseCode } from "@/lib/sudoku/invite";
 
 export async function authenticate(request: Request): Promise<PlayerRecord | null> {
   const header = request.headers.get("authorization") ?? "";

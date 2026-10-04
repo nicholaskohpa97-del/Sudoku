@@ -12,6 +12,7 @@ import path from "node:path";
 import { BlobError, BlobPreconditionFailedError, get, put } from "@vercel/blob";
 import type { Difficulty } from "@/lib/sudoku/engine";
 import type { RoomStatus } from "@/lib/sudoku/types";
+import { HttpError } from "./errors";
 
 export interface PlayerRecord {
   id: string;
@@ -219,10 +220,31 @@ function blobBackend(): Backend {
 
 // ---------------------------------------------------------------------------
 
+// Serverless hosts have a read-only filesystem, so the file backend cannot
+// work there. Fail with a clear message instead of a generic EROFS 500.
+export const STORAGE_NOT_CONFIGURED =
+  "Storage isn't configured — connect a Vercel Blob store to this project (sets BLOB_READ_WRITE_TOKEN)";
+
+function unconfiguredBackend(): Backend {
+  const fail = async (): Promise<never> => {
+    console.error(`[sudoku] ${STORAGE_NOT_CONFIGURED}`);
+    throw new HttpError(503, STORAGE_NOT_CONFIGURED);
+  };
+  return { read: fail, mutate: fail };
+}
+
+export function selectBackend(env: Record<string, string | undefined> = process.env): "blob" | "file" | "unconfigured" {
+  if (env.BLOB_READ_WRITE_TOKEN) return "blob";
+  if (env.VERCEL && !env.SUDOKU_DATA_DIR) return "unconfigured";
+  return "file";
+}
+
 const globalStore = globalThis as typeof globalThis & { __sudokuStore?: Backend };
-const backend: Backend = (globalStore.__sudokuStore ??= process.env.BLOB_READ_WRITE_TOKEN
-  ? blobBackend()
-  : fileBackend());
+const backend: Backend = (globalStore.__sudokuStore ??= {
+  blob: blobBackend,
+  file: fileBackend,
+  unconfigured: unconfiguredBackend,
+}[selectBackend()]());
 
 /** Read-only access. Do not mutate `db` inside `fn`. */
 export async function read<T>(fn: (db: Db) => T): Promise<T> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Crown, Flag, LogOut, Play, RotateCcw, Share2, Timer, Trophy, Users, Wifi, WifiOff } from "lucide-react";
+import { Crown, Flag, LogOut, Play, RotateCcw, Timer, Trophy, Users, Wifi, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -10,7 +10,7 @@ import { MAX_ROOM_PLAYERS, MIN_ROOM_PLAYERS, type MoveResult, type RoomView } fr
 import { Board, type CellState } from "./Board";
 import { MistakeMeter, NumberPad, useBoardKeys } from "./Controls";
 import { NameGate } from "./NameGate";
-import { BackLink, buttonStyles, clearPeerNotes, Field, inputStyles, Panel, Toast, useNow, useToast } from "./ui";
+import { BackLink, buttonStyles, clearPeerNotes, Field, inputStyles, InviteButtons, Panel, Toast, useNow, useToast } from "./ui";
 
 type ShowToast = ReturnType<typeof useToast>["show"];
 
@@ -230,40 +230,6 @@ function RoomBody(props: {
   );
 }
 
-function InviteButtons({ path, label }: { path: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const url = typeof window === "undefined" ? path : `${window.location.origin}${path}`;
-  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
-  return (
-    <div className="flex flex-wrap gap-2">
-      <button
-        type="button"
-        className={buttonStyles.secondary}
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(url);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1800);
-          } catch {
-            prompt("Copy this invite link:", url);
-          }
-        }}
-      >
-        {copied ? <Check className="size-4" /> : <Copy className="size-4" />} {copied ? "Copied" : "Copy invite link"}
-      </button>
-      {canShare ? (
-        <button
-          type="button"
-          className={buttonStyles.secondary}
-          onClick={() => navigator.share({ title: label, text: `${label} — join me on Sudoku`, url }).catch(() => {})}
-        >
-          <Share2 className="size-4" /> Share
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function Lobby({
   room,
   isHost,
@@ -284,7 +250,7 @@ function Lobby({
             {room.league ? ` Matches here count toward the ${room.league.name} monthly tournament.` : ""}
           </p>
         </div>
-        <InviteButtons path={`/sudoku/room/${room.code}`} label={`Sudoku room ${room.code}`} />
+        <InviteButtons path={`/sudoku/room/${room.code}`} title={`Sudoku room ${room.code}`} text={`Join my Sudoku room ${room.code}`} />
 
         {isHost ? (
           <div className="grid gap-4 border-t border-white/10 pt-5 sm:grid-cols-2">
