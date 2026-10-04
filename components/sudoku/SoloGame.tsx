@@ -1,6 +1,6 @@
 "use client";
 
-import { RotateCcw, Sparkles, Timer, Trophy } from "lucide-react";
+import { CalendarDays, RotateCcw, Sparkles, Timer } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDuration } from "@/lib/sudoku/client";
@@ -11,10 +11,16 @@ import {
   MAX_MISTAKES,
   type Difficulty,
 } from "@/lib/sudoku/engine";
+import { awardSolve, type Award } from "@/lib/sudoku/profile";
+import { dailyDifficulty, dailySeed, dayKey, starsFor } from "@/lib/sudoku/progress";
+import { sfx } from "@/lib/sudoku/sfx";
 import { recordSoloResult } from "@/lib/sudoku/stats";
 import { Board, type CellState } from "./Board";
 import { MistakeMeter, NumberPad, useBoardKeys } from "./Controls";
+import { ComboMeter, useJuice } from "./juice";
+import { DIFFICULTY_STYLE } from "./theme";
 import { BackLink, buttonStyles, clearPeerNotes, Toast, useIsClient, useToast } from "./ui";
+import { VictoryCard } from "./Victory";
 
 interface SoloState {
   difficulty: Difficulty;
@@ -27,11 +33,17 @@ interface SoloState {
   mistakes: number;
   elapsedMs: number;
   status: "playing" | "won" | "lost";
+  /** Day key when this is the daily puzzle. */
+  daily?: string;
 }
 
-const SAVE_KEY = "sudoku.solo.v1";
+export type SoloMode = { kind: "classic"; difficulty: Difficulty } | { kind: "daily" };
 
-function newGame(difficulty: Difficulty, seed?: number): SoloState {
+export const SAVE_KEY = "sudoku.solo.v1";
+const DAILY_SAVE_KEY = "sudoku.daily.v1";
+const DAILY_DONE_KEY = "sudoku.dailyDone.v1";
+
+function newGame(difficulty: Difficulty, seed?: number, daily?: string): SoloState {
   const p = generatePuzzle(difficulty, seed);
   return {
     difficulty,
@@ -43,43 +55,84 @@ function newGame(difficulty: Difficulty, seed?: number): SoloState {
     mistakes: 0,
     elapsedMs: 0,
     status: "playing",
+    daily,
   };
 }
 
-function loadOrCreate(difficulty: Difficulty): SoloState {
+function newDaily(): SoloState {
+  const key = dayKey();
+  return newGame(dailyDifficulty(key), dailySeed(key), key);
+}
+
+/** The saved classic game, if one is in progress (used by the hub's "Continue"). */
+export function loadSavedGame(): SoloState | null {
   try {
     const saved = JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null") as SoloState | null;
-    if (saved && saved.difficulty === difficulty && saved.status === "playing") return saved;
+    return saved && saved.status === "playing" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Day key of the last daily puzzle solved on this device. */
+export function loadDailyDone(): string | null {
+  try {
+    return localStorage.getItem(DAILY_DONE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function loadOrCreate(mode: SoloMode): SoloState {
+  try {
+    if (mode.kind === "daily") {
+      const saved = JSON.parse(localStorage.getItem(DAILY_SAVE_KEY) ?? "null") as SoloState | null;
+      if (saved && saved.daily === dayKey()) return saved;
+      return newDaily();
+    }
+    const saved = loadSavedGame();
+    if (saved && saved.difficulty === mode.difficulty && !saved.daily) return saved;
   } catch {
     // Corrupt or unavailable storage: start fresh.
   }
-  return newGame(difficulty);
+  return mode.kind === "daily" ? newDaily() : newGame(mode.difficulty);
 }
 
-export function SoloGame({ difficulty }: { difficulty: Difficulty }) {
+/** Only the correct digits, "0" elsewhere: what unit-completion checks need. */
+function correctBoard(values: number[], solution: string): string {
+  return values.map((v, k) => (String(v) === solution[k] ? solution[k] : "0")).join("");
+}
+
+export function SoloGame({ mode }: { mode: SoloMode }) {
   // The puzzle is random and may be resumed from localStorage, so render it
   // on the client only to avoid a hydration mismatch.
   const isClient = useIsClient();
   if (!isClient) return <div className="mx-auto aspect-square w-full max-w-[min(92vw,30rem)]" />;
-  return <SoloGameInner key={difficulty} difficulty={difficulty} />;
+  return <SoloGameInner key={mode.kind === "daily" ? "daily" : mode.difficulty} mode={mode} />;
 }
 
-function SoloGameInner({ difficulty }: { difficulty: Difficulty }) {
-  const [game, setGame] = useState<SoloState>(() => loadOrCreate(difficulty));
+function SoloGameInner({ mode }: { mode: SoloMode }) {
+  const [game, setGame] = useState<SoloState>(() => loadOrCreate(mode));
   const [selected, setSelected] = useState<number | null>(null);
   const [notesMode, setNotesMode] = useState(false);
   const [flash, setFlash] = useState<{ index: number; key: number } | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [award, setAward] = useState<Award | null>(null);
+  const [showResult, setShowResult] = useState(game.status !== "playing");
   const { toast, show } = useToast();
+  const juice = useJuice((text) => show(text, "success"));
+  const isDaily = !!game.daily;
+  const difficulty = game.difficulty;
+  const style = DIFFICULTY_STYLE[difficulty];
 
   // Persist on every change so a refresh resumes the same game.
   useEffect(() => {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(game));
+      localStorage.setItem(isDaily ? DAILY_SAVE_KEY : SAVE_KEY, JSON.stringify(game));
     } catch {
       // Ignore storage failures.
     }
-  }, [game]);
+  }, [game, isDaily]);
 
   // Timer: ticks while playing and the tab is visible.
   const playing = game.status === "playing";
@@ -113,6 +166,7 @@ function SoloGameInner({ difficulty }: { difficulty: Difficulty }) {
       if (correctNow) return;
 
       if (notesMode) {
+        sfx.tap();
         setGame((g) => {
           const values = g.values.slice();
           values[i] = 0;
@@ -128,9 +182,27 @@ function SoloGameInner({ difficulty }: { difficulty: Difficulty }) {
         values[i] = n;
         const won = values.every((v, k) => String(v) === game.solution[k]);
         setGame({ ...game, values, notes: clearPeerNotes(game.notes, i, n), status: won ? "won" : "playing" });
+        const { combo } = juice.correct(correctBoard(values, game.solution), i);
         if (won) {
           recordSoloResult(game.difficulty, true, game.elapsedMs);
-          show("Solved! 🎉", "success");
+          if (game.daily) {
+            try {
+              localStorage.setItem(DAILY_DONE_KEY, game.daily);
+            } catch {
+              // Ignore storage failures.
+            }
+          }
+          const result = awardSolve({
+            difficulty: game.difficulty,
+            mistakes: game.mistakes,
+            elapsedMs: game.elapsedMs,
+            maxCombo: Math.max(juice.maxCombo.current, combo),
+            daily: !!game.daily,
+          });
+          setAward(result);
+          setSelected(null);
+          setTimeout(() => juice.celebrate(i), 350);
+          setTimeout(() => setShowResult(true), 1900);
         }
         return;
       }
@@ -142,15 +214,18 @@ function SoloGameInner({ difficulty }: { difficulty: Difficulty }) {
       const lost = mistakes >= MAX_MISTAKES;
       setGame({ ...game, values, mistakes, status: lost ? "lost" : "playing" });
       setFlash({ index: i, key: Date.now() });
-      if (lost) recordSoloResult(game.difficulty, false, game.elapsedMs);
+      juice.wrong();
+      if (lost) {
+        recordSoloResult(game.difficulty, false, game.elapsedMs);
+        sfx.lose();
+        setTimeout(() => setShowResult(true), 700);
+      }
       show(
-        lost
-          ? `${n} is wrong — that's ${MAX_MISTAKES} mistakes. Game over.`
-          : `${n} doesn't go there — mistake ${mistakes} of ${MAX_MISTAKES}`,
+        lost ? `${n} is wrong. Out of lives!` : `Not ${n}! ${MAX_MISTAKES - mistakes} ${MAX_MISTAKES - mistakes === 1 ? "life" : "lives"} left`,
         "error",
       );
     },
-    [game, notesMode, selected, show],
+    [game, notesMode, selected, show, juice],
   );
 
   const erase = useCallback(() => {
@@ -177,75 +252,117 @@ function SoloGameInner({ difficulty }: { difficulty: Difficulty }) {
   });
 
   const restart = (sameSeed: boolean) => {
-    setGame(newGame(difficulty, sameSeed ? game.seed : undefined));
+    setGame(isDaily && sameSeed ? newDaily() : newGame(difficulty, sameSeed ? game.seed : undefined));
     setSelected(null);
     setRevealed(false);
+    setAward(null);
+    setShowResult(false);
+    juice.reset();
   };
 
   const filled = game.values.filter((v, i) => game.puzzle[i] === "0" && String(v) === game.solution[i]).length;
   const toFill = [...game.puzzle].filter((c) => c === "0").length;
 
-  const overlay =
-    game.status === "won" ? (
+  let overlay: React.ReactNode = null;
+  if (game.status === "won" && showResult) {
+    overlay = (
+      <VictoryCard
+        title={isDaily ? "Daily cleared!" : "Solved!"}
+        subtitle={`${DIFFICULTY_CONFIG[difficulty].label} · ${formatDuration(game.elapsedMs)} · ${game.mistakes} ${game.mistakes === 1 ? "mistake" : "mistakes"}`}
+        stars={starsFor(difficulty, game.mistakes, game.elapsedMs)}
+        award={award}
+      >
+        {isDaily ? (
+          <Link href="/sudoku" className={buttonStyles.primary}>
+            Back to hub
+          </Link>
+        ) : (
+          <button type="button" onClick={() => restart(false)} className={buttonStyles.primary}>
+            <Sparkles className="size-4" /> Next puzzle
+          </button>
+        )}
+      </VictoryCard>
+    );
+  } else if (game.status === "lost" && !revealed && showResult) {
+    overlay = (
       <div className="space-y-4 px-6 text-center">
-        <Trophy className="mx-auto size-10 text-amber-300" />
-        <h2 className="font-display text-3xl">Solved</h2>
-        <p className="text-sm text-stone-300">
-          {DIFFICULTY_CONFIG[difficulty].label} in {formatDuration(game.elapsedMs)} with {game.mistakes}{" "}
-          {game.mistakes === 1 ? "mistake" : "mistakes"}
-        </p>
-        <button type="button" onClick={() => restart(false)} className={buttonStyles.primary}>
-          <Sparkles className="size-4" /> New puzzle
-        </button>
-      </div>
-    ) : game.status === "lost" && !revealed ? (
-      <div className="space-y-4 px-6 text-center">
-        <h2 className="font-display text-3xl">Out of mistakes</h2>
-        <p className="text-sm text-stone-300">
-          You made {MAX_MISTAKES} mistakes. {filled}/{toFill} cells solved.
+        <p className="text-5xl">💔</p>
+        <h2 className="font-display text-4xl font-bold text-rose-300">Out of lives</h2>
+        <p className="text-sm font-semibold text-stone-300">
+          {filled}/{toFill} cells solved. So close. Go again?
         </p>
         <div className="flex flex-wrap justify-center gap-2">
           <button type="button" onClick={() => restart(true)} className={buttonStyles.primary}>
-            <RotateCcw className="size-4" /> Retry this puzzle
+            <RotateCcw className="size-4" /> Retry
           </button>
-          <button type="button" onClick={() => restart(false)} className={buttonStyles.secondary}>
-            New puzzle
-          </button>
+          {!isDaily ? (
+            <button type="button" onClick={() => restart(false)} className={buttonStyles.secondary}>
+              New puzzle
+            </button>
+          ) : null}
           <button type="button" onClick={() => setRevealed(true)} className={buttonStyles.secondary}>
             Show solution
           </button>
         </div>
       </div>
-    ) : null;
+    );
+  }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <BackLink />
-        <div className="flex gap-1 rounded-lg border border-white/10 p-0.5 text-xs">
-          {DIFFICULTIES.map((d) => (
-            <Link
-              key={d}
-              href={`/sudoku/play/${d}`}
-              className={`rounded-md px-2.5 py-1 transition ${d === difficulty ? "bg-white/15 text-stone-50" : "text-stone-400 hover:text-stone-100"}`}
-            >
-              {DIFFICULTY_CONFIG[d].label}
-            </Link>
-          ))}
+        {isDaily ? (
+          <span className="flex items-center gap-2 rounded-full border border-pink-300/40 bg-pink-400/10 px-3 py-1.5 font-display text-sm font-semibold text-pink-200">
+            <CalendarDays className="size-4" /> Daily · <span className={style.text}>{DIFFICULTY_CONFIG[difficulty].label}</span>
+          </span>
+        ) : (
+          <div className="flex gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 text-xs">
+            {DIFFICULTIES.map((d) => (
+              <Link
+                key={d}
+                href={`/sudoku/play/${d}`}
+                className={`rounded-full px-3 py-1 font-display font-semibold transition ${d === difficulty ? DIFFICULTY_STYLE[d].chip : "text-stone-400 hover:text-stone-100"}`}
+              >
+                {DIFFICULTY_CONFIG[d].label}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mx-auto grid w-full max-w-[min(92vw,30rem)] grid-cols-3 items-center text-sm">
+        <MistakeMeter mistakes={game.mistakes} />
+        <div className="flex justify-center">
+          <ComboMeter combo={juice.combo} />
+        </div>
+        <div className="flex items-center justify-end gap-3 font-num font-semibold tabular-nums">
+          <span className="text-stone-400">
+            {filled}/{toFill}
+          </span>
+          <span className="flex items-center gap-1 text-stone-100">
+            <Timer className="size-4 text-cyan-300" /> {formatDuration(game.elapsedMs)}
+          </span>
         </div>
       </div>
 
-      <div className="mx-auto flex w-full max-w-[min(92vw,30rem)] items-center justify-between text-sm">
-        <MistakeMeter mistakes={game.mistakes} />
-        <span className="text-stone-400 tabular-nums">
-          {filled}/{toFill}
-        </span>
-        <span className="flex items-center gap-1.5 text-stone-300 tabular-nums">
-          <Timer className="size-4" /> {formatDuration(game.elapsedMs)}
-        </span>
+      <div className="mx-auto h-1.5 w-full max-w-[min(92vw,30rem)] overflow-hidden rounded-full bg-white/[0.06]">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-pink-400 shadow-[0_0_12px_rgb(34_211_238/0.7)] transition-all duration-500"
+          style={{ width: `${toFill ? (filled / toFill) * 100 : 0}%` }}
+        />
       </div>
 
-      <Board cells={cells} selected={selected} onSelect={setSelected} flash={flash} overlay={overlay} />
+      <Board
+        cells={cells}
+        selected={selected}
+        onSelect={(i) => {
+          setSelected(i);
+        }}
+        flash={flash}
+        effects={juice.effects}
+        overlay={overlay}
+      />
 
       <NumberPad
         cells={cells}
@@ -259,11 +376,13 @@ function SoloGameInner({ difficulty }: { difficulty: Difficulty }) {
       {game.status === "lost" && revealed ? (
         <div className="flex justify-center gap-2">
           <button type="button" onClick={() => restart(true)} className={buttonStyles.primary}>
-            <RotateCcw className="size-4" /> Retry this puzzle
+            <RotateCcw className="size-4" /> Retry
           </button>
-          <button type="button" onClick={() => restart(false)} className={buttonStyles.secondary}>
-            New puzzle
-          </button>
+          {!isDaily ? (
+            <button type="button" onClick={() => restart(false)} className={buttonStyles.secondary}>
+              New puzzle
+            </button>
+          ) : null}
         </div>
       ) : null}
 

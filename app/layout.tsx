@@ -1,33 +1,37 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Inter } from "next/font/google";
+import { Fredoka, Nunito, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
-const display = Cormorant_Garamond({
-  variable: "--font-cormorant",
+const display = Fredoka({
+  variable: "--font-fredoka",
   subsets: ["latin"],
-  weight: ["300", "400", "500"],
 });
 
-const sans = Inter({
-  variable: "--font-inter",
+const sans = Nunito({
+  variable: "--font-sans-body",
+  subsets: ["latin"],
+});
+
+const grotesk = Space_Grotesk({
+  variable: "--font-grotesk",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
   title: "Sudoku",
-  description: "Ad-free Sudoku with multiplayer rooms for up to 20 friends and monthly tournaments.",
+  description: "Neon Sudoku: daily puzzles, combos, multiplayer races with friends and monthly tournaments.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#0d1420",
+  themeColor: "#0B0820",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable} h-full antialiased`}>
+    <html lang="en" className={`${display.variable} ${sans.variable} ${grotesk.variable} h-full antialiased`}>
       <body className="h-full overflow-hidden overscroll-none">{children}</body>
     </html>
   );

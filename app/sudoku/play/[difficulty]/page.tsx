@@ -17,5 +17,5 @@ export async function generateMetadata(props: PageProps<"/sudoku/play/[difficult
 export default async function PlayPage(props: PageProps<"/sudoku/play/[difficulty]">) {
   const { difficulty } = await props.params;
   if (!isDifficulty(difficulty)) notFound();
-  return <SoloGame difficulty={difficulty} />;
+  return <SoloGame mode={{ kind: "classic", difficulty }} />;
 }

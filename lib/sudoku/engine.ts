@@ -259,3 +259,34 @@ export function countClues(grid: Grid): number {
   for (const ch of grid) if (ch !== "0") n++;
   return n;
 }
+
+// ---------------------------------------------------------------------------
+// Unit completion (drives the row/column/box celebration animation)
+
+export type UnitKind = "row" | "col" | "box";
+
+export interface CompletedUnit {
+  kind: UnitKind;
+  /** 0–8: which row, column or box. */
+  index: number;
+  cells: number[];
+}
+
+/**
+ * Which of cell `index`'s row, column and box are now completely filled.
+ * `board` must contain only correct digits (givens plus correct entries)
+ * with "0" or 0 elsewhere, which is how both solo and room boards are kept.
+ */
+export function completedUnits(board: string | number[], index: number): CompletedUnit[] {
+  const filled = (i: number) => {
+    const v = board[i];
+    return v !== undefined && v !== 0 && v !== "0";
+  };
+  if (!filled(index)) return [];
+  const candidates: CompletedUnit[] = [
+    { kind: "row", index: rowOf(index), cells: UNITS[rowOf(index)] },
+    { kind: "col", index: colOf(index), cells: UNITS[9 + colOf(index)] },
+    { kind: "box", index: boxOf(index), cells: UNITS[18 + boxOf(index)] },
+  ];
+  return candidates.filter((u) => u.cells.every(filled));
+}

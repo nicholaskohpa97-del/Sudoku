@@ -1,6 +1,6 @@
 # Sudoku
 
-Ad-free Sudoku with four difficulty levels, a three-mistake limit, multiplayer rooms for up to 20 friends and monthly tournaments. Built with Next.js 16, TypeScript and Tailwind CSS v4.
+Neon-arcade Sudoku with four difficulty levels, a daily puzzle, combos, XP and achievements, multiplayer races for up to 20 friends and monthly tournaments. Ad-free. Built with Next.js 16, TypeScript and Tailwind CSS v4.
 
 ```bash
 npm install
@@ -11,7 +11,10 @@ npm run build && npm start
 
 ## Features
 - **Four difficulty levels.** Easy (38 clues) and Medium (32 clues) are guaranteed solvable with singles only, so no guessing. Hard (27 clues) and Expert (23 clues) need candidate techniques beyond singles. Every puzzle has exactly one solution.
-- **Three mistakes, with instant feedback.** A wrong number turns red, shakes, and shows "mistake n of 3". The third mistake ends the game. Correct numbers lock in and clear the matching pencil marks.
+- **Game feel.** Completing a row, column or box sends a light ripple across it from the cell you just filled, with a "ROW CLEAR!" label. Clearing two or three units with one number shows "DOUBLE!" or "TRIPLE!". Correct numbers pop, a digit's pad button bursts when all nine are placed, and consecutive correct entries within 8 s build a combo (×2 at 4, ×3 at 8). Synthesised Web Audio sounds (mute in the header) and phone haptics come with all of it. Everything respects `prefers-reduced-motion`.
+- **Progression** (`lib/sudoku/progress.ts`, stored on the device). You earn XP per solve: base by difficulty, +50% for a flawless solve, a combo bonus, and a daily bonus. Levels come with titles (Rookie → Grandmaster). Each solve gets a 1–3 star rating (solve, no mistakes, beat par), and there are nine achievements.
+- **Daily puzzle.** Everyone gets the same seeded puzzle each Singapore day. Difficulty follows the week, from Easy on Monday to Expert on Sunday. Clearing it keeps your streak alive.
+- **Three mistakes, with instant feedback.** A wrong number turns red, shakes, and cracks one of three hearts. The third mistake ends the game. Correct numbers lock in and clear the matching pencil marks.
 - **Play aids.** Pencil notes, a remaining-count on each number button, row/column/box and same-number highlighting, a timer, and full keyboard control (1–9, arrow keys, Backspace, N for notes). Solo games survive a page refresh, and personal bests are kept per difficulty.
 - **No ads.** The app contains no ad or analytics code. A strict Content-Security-Policy in `next.config.ts` only allows same-origin scripts, frames, images and network requests, so an ad network or tracker cannot load even if someone adds a tag later.
 - **Multiplayer rooms (2–20 players, default 10).** The host creates a room and shares the 6-character code or invite link. Everyone races on the same puzzle after a 3-second countdown, and the live standings show each player's progress, mistakes and online status. Players never see each other's numbers. The server checks every move, so the solution never reaches the browser until the match ends. A match ends when everyone has finished or is out, when time runs out (20/30/45/60 minutes by difficulty), or when the host ends it. The host can then start a rematch.
@@ -35,10 +38,11 @@ Only matches with at least 2 players count. Months follow `TOURNAMENT_TZ` (defau
 | Game rules | `lib/server/rooms.ts`, `lib/server/leagues.ts` | Room lifecycle, move checking, standings, result recording. |
 | Storage | `lib/server/store.ts` | **Vercel Blob** when `BLOB_READ_WRITE_TOKEN` is set: one private JSON blob, with ETag (`ifMatch`) writes that retry on conflict so concurrent serverless instances never overwrite each other, plus a 1-second in-memory read cache. **Otherwise a local JSON file** at `.data/sudoku.json` (override with `SUDOKU_DATA_DIR`). Online status is held in memory only. |
 | Identity | `lib/server/http.ts`, `lib/sudoku/client.ts` | No accounts. Each device registers a display name and gets a random token. The server stores only a SHA-256 hash of the token, and the client sends `Authorization: Bearer <id>:<token>`. |
+| Game feel | `components/sudoku/juice.tsx`, `lib/sudoku/sfx.ts`, `app/globals.css` | Unit-completion detection lives in `completedUnits()` in `engine.ts`. Animations are CSS keyframes with a per-cell `--d` delay. Confetti uses a worker-free canvas so it stays within the CSP. |
 | UI | `components/sudoku/*`, `app/sudoku/**` | Clients poll the room every 1.5 s, which is plenty for 20 players and needs no WebSocket server. |
 
 ## Deployment notes
-- **Vercel:** connect a private Blob store to the project. This sets `BLOB_READ_WRITE_TOKEN`, and the app switches to Blob storage automatically. Keep the function region close to your players (e.g. `sin1`).
+- **Vercel:** connect a private Blob store to the project. This sets `BLOB_READ_WRITE_TOKEN`, and the app switches to Blob storage automatically. **This is required:** Vercel's filesystem is read-only, so without Blob every write (names, rooms, tournaments) fails. The API then answers 503 "Storage isn't configured" instead of a generic error. Keep the function region close to your players (e.g. `sin1`).
 - **Single server** (VPS, Docker, `npm start`): no setup needed. Data goes to `.data/` on disk.
 - **Scale:** the whole database is one JSON document, which is fine for friends and family. For hundreds of concurrent players, move to Redis or Postgres by reimplementing the `Backend` interface in `store.ts`.
 - **Identity is tied to the device.** Clearing site data or switching phones creates a new player.

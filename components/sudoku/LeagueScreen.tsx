@@ -16,7 +16,7 @@ import {
 } from "@/lib/sudoku/tournament";
 import { DEFAULT_ROOM_PLAYERS, MAX_ROOM_PLAYERS, MIN_ROOM_PLAYERS, type LeagueView, type RoomView } from "@/lib/sudoku/types";
 import { NameGate } from "./NameGate";
-import { BackLink, buttonStyles, Field, inputStyles, Panel, Toast, useToast } from "./ui";
+import { BackLink, buttonStyles, Field, inputStyles, InviteButtons, Panel, Toast, useToast } from "./ui";
 
 export function LeagueScreen({ code }: { code: string }) {
   return (
@@ -26,7 +26,7 @@ export function LeagueScreen({ code }: { code: string }) {
   );
 }
 
-const MEDAL = ["text-amber-300", "text-stone-300", "text-orange-400"];
+const MEDAL = ["fill-yellow-300 text-yellow-300", "fill-stone-300 text-stone-300", "fill-orange-400 text-orange-400"];
 
 function LeagueBody({ code }: { code: string }) {
   const { player } = usePlayer();
@@ -87,16 +87,20 @@ function LeagueBody({ code }: { code: string }) {
       <BackLink />
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs tracking-widest text-stone-400 uppercase">Monthly tournament</p>
-          <h1 className="font-display text-4xl sm:text-5xl">{league.name}</h1>
+          <p className="font-display text-xs font-semibold tracking-[0.3em] text-pink-200 uppercase">Monthly tournament</p>
+          <h1 className="font-display text-4xl font-bold text-yellow-200 text-glow-gold sm:text-5xl">🏆 {league.name}</h1>
           <p className="mt-1 text-sm text-stone-400">
             <Users className="mr-1 inline size-4" />
             {league.memberCount} {league.memberCount === 1 ? "member" : "members"} · code{" "}
-            <span className="font-mono tracking-widest text-stone-200">{league.code}</span>
+            <span className="font-num font-bold tracking-widest text-cyan-200">{league.code}</span>
           </p>
         </div>
         {league.isMember ? (
-          <InviteLink code={league.code} name={league.name} />
+          <InviteButtons
+            path={`/sudoku/league/${league.code}`}
+            title={league.name}
+            text={`Join my Sudoku tournament "${league.name}"`}
+          />
         ) : (
           <button
             type="button"
@@ -121,8 +125,8 @@ function LeagueBody({ code }: { code: string }) {
               <ChevronLeft className="size-5" />
             </button>
             <h2 className="flex items-center gap-2 font-medium">
-              <Trophy className="size-4 text-amber-300" /> {formatMonth(league.month)}
-              {viewingCurrent ? <span className="text-xs font-normal text-emerald-300">· live</span> : null}
+              <Trophy className="size-4 text-yellow-300" /> {formatMonth(league.month)}
+              {viewingCurrent ? <span className="animate-pulse text-xs font-bold text-lime-300">● live</span> : null}
             </h2>
             <button
               type="button"
@@ -162,7 +166,7 @@ function LeagueBody({ code }: { code: string }) {
                   {league.standings.map((row) => (
                     <tr
                       key={row.playerId}
-                      className={`border-t border-white/5 ${row.playerId === player.id ? "bg-amber-300/[0.07]" : ""}`}
+                      className={`border-t border-white/5 ${row.playerId === player.id ? "bg-cyan-300/[0.08]" : ""}`}
                     >
                       <td className="px-3 py-2.5 tabular-nums">
                         {row.rank <= 3 ? (
@@ -175,7 +179,7 @@ function LeagueBody({ code }: { code: string }) {
                         {row.name}
                         {row.playerId === player.id ? <span className="text-stone-500"> (you)</span> : null}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-amber-200 tabular-nums">{row.points}</td>
+                      <td className="px-3 py-2.5 text-right font-num font-bold text-yellow-200 tabular-nums">{row.points}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{row.wins}</td>
                       <td className="hidden px-3 py-2.5 text-right tabular-nums sm:table-cell">
                         {row.completions}/{row.matches}
@@ -195,7 +199,7 @@ function LeagueBody({ code }: { code: string }) {
         <aside className="space-y-4">
           {league.isMember ? (
             <Panel className="space-y-4 !p-4">
-              <h3 className="text-sm font-medium">Start a tournament match</h3>
+              <h3 className="font-display font-semibold">Start a tournament match</h3>
               <Field label="Difficulty">
                 <select
                   className={inputStyles}
@@ -216,7 +220,7 @@ function LeagueBody({ code }: { code: string }) {
                   max={MAX_ROOM_PLAYERS}
                   value={maxPlayers}
                   onChange={(e) => setMaxPlayers(Number(e.target.value))}
-                  className="w-full accent-amber-300"
+                  className="w-full accent-pink-400"
                 />
               </Field>
               <button
@@ -230,21 +234,21 @@ function LeagueBody({ code }: { code: string }) {
                   })
                 }
               >
-                <Play className="size-4" /> Create match room
+                <Play className="size-4 fill-night" /> Create race room
               </button>
             </Panel>
           ) : null}
 
           {league.openRooms.length ? (
             <Panel className="space-y-2 !p-4">
-              <h3 className="text-sm font-medium">Open rooms</h3>
+              <h3 className="font-display font-semibold">Open rooms</h3>
               {league.openRooms.map((r) => (
                 <Link
                   key={r.code}
                   href={`/sudoku/room/${r.code}`}
                   className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2 text-sm hover:bg-white/[0.07]"
                 >
-                  <span className="font-mono tracking-widest">{r.code}</span>
+                  <span className="font-num font-bold tracking-widest text-cyan-200">{r.code}</span>
                   <span className="text-stone-400">
                     {DIFFICULTY_CONFIG[r.difficulty].label} · {r.players}/{r.maxPlayers}
                     {r.status === "playing" ? " · in play" : ""}
@@ -256,7 +260,7 @@ function LeagueBody({ code }: { code: string }) {
 
           {league.recentMatches.length ? (
             <Panel className="space-y-2 !p-4">
-              <h3 className="text-sm font-medium">Recent matches</h3>
+              <h3 className="font-display font-semibold">Recent matches</h3>
               <ul className="space-y-1.5 text-sm">
                 {league.recentMatches.map((m) => (
                   <li key={m.id} className="flex justify-between gap-2 text-stone-300">
@@ -294,7 +298,7 @@ function LeagueBody({ code }: { code: string }) {
           </Panel>
 
           <Panel className="space-y-2 !p-4">
-            <h3 className="text-sm font-medium">Members</h3>
+            <h3 className="font-display font-semibold">Members</h3>
             <p className="text-sm text-stone-400">{league.members.map((m) => m.name).join(", ")}</p>
             {league.isMember ? (
               <button
@@ -316,31 +320,5 @@ function LeagueBody({ code }: { code: string }) {
       </div>
       <Toast toast={toast} />
     </div>
-  );
-}
-
-function InviteLink({ code, name }: { code: string; name: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className={buttonStyles.secondary}
-      onClick={async () => {
-        const url = `${window.location.origin}/sudoku/league/${code}`;
-        if (typeof navigator.share === "function") {
-          navigator.share({ title: name, text: `Join my Sudoku tournament "${name}"`, url }).catch(() => {});
-          return;
-        }
-        try {
-          await navigator.clipboard.writeText(url);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1800);
-        } catch {
-          prompt("Copy this invite link:", url);
-        }
-      }}
-    >
-      {copied ? "Link copied" : "Invite friends"}
-    </button>
   );
 }
