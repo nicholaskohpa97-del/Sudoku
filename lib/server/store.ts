@@ -1,7 +1,7 @@
 // Persistence for players, rooms, leagues and match results.
 //
 // Two backends sit behind the same `read` / `mutate` interface:
-// - Vercel Blob (when BLOB_READ_WRITE_TOKEN is set): the whole database is
+// - Vercel Blob (when BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN is set): the whole database is
 //   one private JSON blob. Writes use optimistic concurrency (`ifMatch` on
 //   the ETag) and retry on conflict, so concurrent serverless instances never
 //   overwrite each other's changes.
@@ -223,7 +223,7 @@ function blobBackend(): Backend {
 // Serverless hosts have a read-only filesystem, so the file backend cannot
 // work there. Fail with a clear message instead of a generic EROFS 500.
 export const STORAGE_NOT_CONFIGURED =
-  "Storage isn't configured — connect a Vercel Blob store to this project (sets BLOB_READ_WRITE_TOKEN)";
+  "Storage isn't configured — connect a Vercel Blob store to this project (sets BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN), then redeploy";
 
 function unconfiguredBackend(): Backend {
   const fail = async (): Promise<never> => {
@@ -234,7 +234,10 @@ function unconfiguredBackend(): Backend {
 }
 
 export function selectBackend(env: Record<string, string | undefined> = process.env): "blob" | "file" | "unconfigured" {
-  if (env.BLOB_READ_WRITE_TOKEN) return "blob";
+  // Newer Blob connections authenticate with the deployment's OIDC token and
+  // only set BLOB_STORE_ID; older ones set a read-write token. @vercel/blob
+  // handles both, so either means Blob storage is available.
+  if (env.BLOB_STORE_ID || env.BLOB_READ_WRITE_TOKEN) return "blob";
   if (env.VERCEL && !env.SUDOKU_DATA_DIR) return "unconfigured";
   return "file";
 }

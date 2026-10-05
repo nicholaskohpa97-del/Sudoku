@@ -187,6 +187,7 @@ describe("invites", () => {
   it("refuses the read-only file backend on Vercel", () => {
     assert.equal(selectBackend({ VERCEL: "1" }), "unconfigured");
     assert.equal(selectBackend({ VERCEL: "1", BLOB_READ_WRITE_TOKEN: "t" }), "blob");
+    assert.equal(selectBackend({ VERCEL: "1", BLOB_STORE_ID: "store_x" }), "blob"); // OIDC-style connection
     assert.equal(selectBackend({}), "file");
   });
 });
