@@ -16,10 +16,11 @@ export const MATCH_TIME_LIMIT_MIN: Record<Difficulty, number> = {
 
 export type RoomStatus = "lobby" | "playing" | "finished";
 
-export interface PlayerSession {
+/** The signed-in player as the client sees it. */
+export interface PlayerProfile {
   id: string;
   name: string;
-  token: string;
+  avatarUrl: string | null;
 }
 
 export interface RoomPlayerView {

@@ -1,6 +1,6 @@
 # Sudoku
 
-Neon-arcade Sudoku with four difficulty levels, a daily puzzle, combos, XP and achievements, multiplayer races for up to 20 friends and monthly tournaments. Ad-free. Built with Next.js 16, TypeScript and Tailwind CSS v4.
+Neon-arcade Sudoku with four difficulty levels, a daily puzzle, combos, XP and achievements, multiplayer races for up to 20 friends and monthly tournaments. Sign in with Google to play with friends. Ad-free. Built with Next.js 16, TypeScript, Tailwind CSS v4 and Supabase.
 
 ```bash
 npm install
@@ -36,13 +36,28 @@ Only matches with at least 2 players count. Months follow `TOURNAMENT_TZ` (defau
 | Engine | `lib/sudoku/engine.ts` | Seeded RNG, bitmask backtracking solver (picks the most constrained cell first), symmetric clue removal with a uniqueness check, and a singles-only grader that sets the difficulty. Pure TypeScript, shared by client and server. |
 | API | `app/api/sudoku/**/route.ts` | `players` (register/rename), `rooms` (create), `rooms/[code]` (GET to poll; POST for `join` / `leave` / `settings` / `start` / `move` / `end` / `lobby`), `leagues`, `leagues/[code]` (`?month=YYYY-MM`). |
 | Game rules | `lib/server/rooms.ts`, `lib/server/leagues.ts` | Room lifecycle, move checking, standings, result recording. |
-| Storage | `lib/server/store.ts` | **Vercel Blob** when `BLOB_STORE_ID` (OIDC-style connection) or `BLOB_READ_WRITE_TOKEN` is set: one private JSON blob, with ETag (`ifMatch`) writes that retry on conflict so concurrent serverless instances never overwrite each other, plus a 1-second in-memory read cache. **Otherwise a local JSON file** at `.data/sudoku.json` (override with `SUDOKU_DATA_DIR`). Online status is held in memory only. |
-| Identity | `lib/server/http.ts`, `lib/sudoku/client.ts` | No accounts. Each device registers a display name and gets a random token. The server stores only a SHA-256 hash of the token, and the client sends `Authorization: Bearer <id>:<token>`. |
+| Storage | `lib/server/store.ts`, `supabase/schema.sql` | **Supabase Postgres** when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set: the game database is one JSONB row in `sudoku_state`, written with optimistic concurrency on a `version` column (retries on conflict, so concurrent serverless instances never overwrite each other), plus a 1-second in-memory read cache. Only the server touches it (secret key; RLS blocks the browser key). **Otherwise a local JSON file** at `.data/sudoku.json` (override with `SUDOKU_DATA_DIR`). Online status is held in memory only. |
+| Identity | `lib/server/http.ts`, `lib/sudoku/client.ts`, `lib/supabase/*`, `proxy.ts`, `app/auth/callback` | **Google Sign-In via Supabase Auth** (PKCE). The session lives in cookies, `proxy.ts` refreshes it, and every API call verifies the JWT (`getClaims`). The player record is created from the Google name and photo on first sign-in, and players can rename themselves on the Profile page. Solo play needs no account. |
 | Game feel | `components/sudoku/juice.tsx`, `lib/sudoku/sfx.ts`, `app/globals.css` | Unit-completion detection lives in `completedUnits()` in `engine.ts`. Animations are CSS keyframes with a per-cell `--d` delay. Confetti uses a worker-free canvas so it stays within the CSP. |
 | UI | `components/sudoku/*`, `app/sudoku/**` | Clients poll the room every 1.5 s, which is plenty for 20 players and needs no WebSocket server. |
 
 ## Deployment notes
-- **Vercel:** connect a private Blob store to the project. This sets `BLOB_STORE_ID` (newer stores authenticate with the deployment's OIDC token) or `BLOB_READ_WRITE_TOKEN` (older stores), and after a redeploy the app switches to Blob storage automatically. Make sure the connection is enabled for Production. **This is required:** Vercel's filesystem is read-only, so without Blob every write (names, rooms, tournaments) fails. The API then answers 503 "Storage isn't configured" instead of a generic error. Keep the function region close to your players (e.g. `sin1`).
-- **Single server** (VPS, Docker, `npm start`): no setup needed. Data goes to `.data/` on disk.
-- **Scale:** the whole database is one JSON document, which is fine for friends and family. For hundreds of concurrent players, move to Redis or Postgres by reimplementing the `Backend` interface in `store.ts`.
-- **Identity is tied to the device.** Clearing site data or switching phones creates a new player.
+### Supabase + Google Sign-In setup (one-off)
+1. **Create the table:** Supabase → SQL Editor → paste `supabase/schema.sql` → Run.
+2. **Google OAuth client:** Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (Web application).
+   - Authorized JavaScript origin: your site, e.g. `https://sudoku-friends.vercel.app`.
+   - Authorized redirect URI: `https://<project-ref>.supabase.co/auth/v1/callback`.
+3. **Supabase → Authentication → Sign In / Providers → Google:** enable it and paste the client ID and secret.
+4. **Supabase → Authentication → URL Configuration:**
+   - Site URL: your production URL.
+   - Redirect URLs: `https://<your-domain>/auth/callback`, `https://*-nic-s-projects88.vercel.app/**` (previews) and `http://localhost:3000/**`.
+5. **Vercel → Settings → Environment Variables** (Production and Preview), then redeploy. `NEXT_PUBLIC_*` values are baked in at build time, so a redeploy is required.
+   - `NEXT_PUBLIC_SUPABASE_URL`: Project URL (Supabase → Project Settings → API).
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: the anon / publishable key.
+   - `SUPABASE_SERVICE_ROLE_KEY`: the service_role / secret key. Server only; never prefix it with `NEXT_PUBLIC_`.
+
+### Notes
+- **Without Supabase variables** the game still runs. Solo play works, and multiplayer shows "Sign-in isn't set up". On Vercel the API answers 503 "Storage isn't configured" rather than failing on the read-only filesystem.
+- **Local dev:** put the same three variables in `.env.local` to use your Supabase project.
+- **Scale:** one JSONB document is fine for friends and family. For hundreds of concurrent players, split it into per-room rows (the `Backend` interface in `store.ts` is the seam).
+- **Progression** (XP, streaks, achievements) is still stored per device. Moving it to the player's account is the natural next step now that accounts exist.

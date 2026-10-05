@@ -17,7 +17,7 @@ import {
   type LeagueSummary,
   type RoomView,
 } from "@/lib/sudoku/types";
-import { NameForm } from "./NameGate";
+import { GoogleButton } from "./NameGate";
 import { loadDailyDone, loadSavedGame } from "./SoloGame";
 import { DIFFICULTY_STYLE } from "./theme";
 import { Avatar, buttonStyles, Field, inputStyles, Panel, SectionTitle, Toast, useIsClient, useToast } from "./ui";
@@ -28,7 +28,7 @@ export function SudokuHub() {
 
   return (
     <div className="space-y-8">
-      <PlayerCard name={player?.name ?? null} />
+      <PlayerCard name={player?.name ?? null} avatarUrl={player?.avatarUrl} seed={player?.id} />
       <DailyHero />
       <SoloSection />
 
@@ -44,10 +44,10 @@ export function SudokuHub() {
               Race your friends
             </SectionTitle>
             <p className="text-sm font-semibold text-stone-300">
-              Pick a player name to create or join rooms of up to {MAX_ROOM_PLAYERS} and battle in monthly tournaments.
-              No sign-up needed.
+              Sign in with Google to create or join rooms of up to {MAX_ROOM_PLAYERS} and battle in monthly
+              tournaments. Solo play works without an account.
             </p>
-            <NameForm submitLabel="Let's go" />
+            <GoogleButton />
             <span id="tournaments" className="block scroll-mt-6" />
           </Panel>
         )
@@ -58,7 +58,17 @@ export function SudokuHub() {
 }
 
 /** Avatar, level, XP bar, streak and trophies: the player's "status" at a glance. */
-export function PlayerCard({ name, large = false }: { name: string | null; large?: boolean }) {
+export function PlayerCard({
+  name,
+  avatarUrl,
+  seed,
+  large = false,
+}: {
+  name: string | null;
+  avatarUrl?: string | null;
+  seed?: string;
+  large?: boolean;
+}) {
   const progress = useProgress();
   const xp = progress?.xp ?? 0;
   const info = levelInfo(xp);
@@ -70,7 +80,7 @@ export function PlayerCard({ name, large = false }: { name: string | null; large
       className="group animate-rise flex items-center gap-4 rounded-3xl border border-white/10 bg-gradient-to-r from-violet-500/15 via-white/[0.03] to-cyan-500/10 p-4 transition hover:border-cyan-300/40"
     >
       <div className="relative">
-        <Avatar name={name ?? "Guest"} className={large ? "size-16 text-xl" : "size-12 text-base"} />
+        <Avatar name={name ?? "Guest"} src={avatarUrl} seed={seed} className={large ? "size-16 text-xl" : "size-12 text-base"} />
         <span className="absolute -right-1 -bottom-1 rounded-full bg-pink-400 px-1.5 font-display text-[0.7rem] font-bold text-night ring-2 ring-night">
           {info.level}
         </span>

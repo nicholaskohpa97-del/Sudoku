@@ -24,3 +24,12 @@ export function parseInviteCode(input: string): string {
   }
   return normaliseCode(raw);
 }
+
+/**
+ * Where to send the player after Google sign-in. Only same-site relative
+ * paths are allowed, so the callback can't be used as an open redirect.
+ */
+export function safeNext(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/sudoku";
+  return value;
+}
