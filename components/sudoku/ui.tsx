@@ -179,7 +179,29 @@ function hashString(s: string): number {
 }
 
 /** Initials in a colourful disc; the colour is stable per player. */
-export function Avatar({ name, seed, className = "size-9 text-sm" }: { name: string; seed?: string; className?: string }) {
+export function Avatar({
+  name,
+  seed,
+  src,
+  className = "size-9 text-sm",
+}: {
+  name: string;
+  seed?: string;
+  /** Profile photo (e.g. from Google); falls back to initials. */
+  src?: string | null;
+  className?: string;
+}) {
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- tiny remote avatar; next/image would need remotePatterns + optimisation for no gain
+      <img
+        src={src}
+        alt=""
+        referrerPolicy="no-referrer"
+        className={`inline-block shrink-0 rounded-full object-cover ring-2 ring-white/20 ${className}`}
+      />
+    );
+  }
   const initials =
     name
       .split(/\s+/)

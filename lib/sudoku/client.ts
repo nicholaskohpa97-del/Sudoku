@@ -1,28 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import type { PlayerSession } from "./types";
-
-const SESSION_KEY = "sudoku.session.v1";
-
-function loadSession(): PlayerSession | null {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    return raw ? (JSON.parse(raw) as PlayerSession) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveSession(session: PlayerSession | null) {
-  try {
-    if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    else localStorage.removeItem(SESSION_KEY);
-  } catch {
-    // Storage blocked (private mode): the session lasts for this tab only.
-  }
-  window.dispatchEvent(new Event("sudoku-session"));
-}
+import { useCallback, useSyncExternalStore } from "react";
+import { supabaseBrowser } from "@/lib/supabase/browser";
+import type { PlayerProfile } from "./types";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -33,20 +13,17 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** Calls our API. The Supabase session travels in cookies, so no auth header is needed. */
 export async function api<T>(path: string, init: RequestInit & { body?: string } = {}): Promise<T> {
-  const session = loadSession();
   const res = await fetch(`/api/sudoku${path}`, {
     ...init,
     cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      ...(session ? { Authorization: `Bearer ${session.id}:${session.token}` } : {}),
-      ...init.headers,
-    },
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...init.headers },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && session) saveSession(null);
+    if (res.status === 401 && auth.status === "signedIn") setAuth({ status: "signedOut" });
     throw new ApiRequestError(res.status, (data as { error?: string }).error ?? `Request failed (${res.status})`);
   }
   return data as T;
@@ -54,47 +31,94 @@ export async function api<T>(path: string, init: RequestInit & { body?: string }
 
 export const post = <T>(path: string, body: unknown) => api<T>(path, { method: "POST", body: JSON.stringify(body) });
 
-function subscribe(onChange: () => void) {
-  window.addEventListener("sudoku-session", onChange);
-  window.addEventListener("storage", onChange);
-  return () => {
-    window.removeEventListener("sudoku-session", onChange);
-    window.removeEventListener("storage", onChange);
-  };
+// ---------------------------------------------------------------------------
+// Auth state shared by every component (one Supabase listener per tab).
+
+export type AuthState =
+  | { status: "loading" }
+  | { status: "signedOut" }
+  | { status: "signedIn"; player: PlayerProfile }
+  /** Supabase env vars missing in this build. */
+  | { status: "unavailable" };
+
+let auth: AuthState = { status: "loading" };
+const SERVER_STATE: AuthState = { status: "loading" };
+const listeners = new Set<() => void>();
+let started = false;
+
+function setAuth(next: AuthState) {
+  auth = next;
+  for (const l of listeners) l();
 }
 
-function readRawSession(): string {
+async function loadProfile() {
   try {
-    return localStorage.getItem(SESSION_KEY) ?? "";
+    setAuth({ status: "signedIn", player: await api<PlayerProfile>("/players") });
   } catch {
-    return "";
+    setAuth({ status: "signedOut" });
   }
 }
 
-/** The device's player identity, shared across tabs and components. */
-export function usePlayer() {
-  // `null` on the server and during hydration; a string once on the client.
-  const raw = useSyncExternalStore(subscribe, readRawSession, () => null);
-  const player = useMemo<PlayerSession | null>(() => {
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as PlayerSession;
-    } catch {
-      return null;
-    }
-  }, [raw]);
+function start() {
+  if (started) return;
+  started = true;
+  const supabase = supabaseBrowser();
+  if (!supabase) {
+    setAuth({ status: "unavailable" });
+    return;
+  }
+  supabase.auth.onAuthStateChange((event, session) => {
+    // Don't await Supabase calls inside this callback; defer our own work.
+    setTimeout(() => {
+      if (!session) setAuth({ status: "signedOut" });
+      else if (event === "INITIAL_SESSION" || event === "SIGNED_IN" || auth.status !== "signedIn") void loadProfile();
+    }, 0);
+  });
+}
 
-  const register = useCallback(async (name: string) => {
-    const current = loadSession();
-    if (current) {
-      const updated = await api<{ name: string }>("/players", { method: "PATCH", body: JSON.stringify({ name }) });
-      saveSession({ ...current, name: updated.name });
-    } else {
-      saveSession(await post<PlayerSession>("/players", { name }));
-    }
+function subscribe(onChange: () => void) {
+  listeners.add(onChange);
+  start();
+  return () => listeners.delete(onChange);
+}
+
+/** The signed-in player, plus sign-in / sign-out / rename. */
+export function usePlayer() {
+  const state = useSyncExternalStore(
+    subscribe,
+    () => auth,
+    () => SERVER_STATE,
+  );
+
+  const signIn = useCallback(async (next?: string) => {
+    const supabase = supabaseBrowser();
+    if (!supabase) throw new Error("Sign-in isn't configured yet");
+    const back = next ?? `${window.location.pathname}${window.location.search}`;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(back)}` },
+    });
+    if (error) throw new Error(error.message);
   }, []);
 
-  return { player, ready: raw !== null, register };
+  const signOut = useCallback(async () => {
+    await supabaseBrowser()?.auth.signOut();
+    setAuth({ status: "signedOut" });
+  }, []);
+
+  const rename = useCallback(async (name: string) => {
+    const player = await api<PlayerProfile>("/players", { method: "PATCH", body: JSON.stringify({ name }) });
+    setAuth({ status: "signedIn", player });
+  }, []);
+
+  return {
+    status: state.status,
+    player: state.status === "signedIn" ? state.player : null,
+    ready: state.status !== "loading",
+    signIn,
+    signOut,
+    rename,
+  };
 }
 
 export function formatDuration(ms: number): string {

@@ -1,23 +1,26 @@
 // Persistence for players, rooms, leagues and match results.
 //
 // Two backends sit behind the same `read` / `mutate` interface:
-// - Vercel Blob (when BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN is set): the whole database is
-//   one private JSON blob. Writes use optimistic concurrency (`ifMatch` on
-//   the ETag) and retry on conflict, so concurrent serverless instances never
-//   overwrite each other's changes.
+// - Supabase Postgres (when NEXT_PUBLIC_SUPABASE_URL and the secret key are
+//   set): the whole database is one JSONB row in `sudoku_state`
+//   (see supabase/schema.sql). Writes use optimistic concurrency on a
+//   `version` column and retry on conflict, so concurrent serverless
+//   instances never overwrite each other's changes.
 // - Local JSON file (otherwise): for `next dev` / single-server hosting.
 //   Writes are serialised in-process and replaced atomically.
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { BlobError, BlobPreconditionFailedError, get, put } from "@vercel/blob";
+import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_URL, supabaseSecretKey } from "@/lib/supabase/env";
 import type { Difficulty } from "@/lib/sudoku/engine";
 import type { RoomStatus } from "@/lib/sudoku/types";
 import { HttpError } from "./errors";
 
 export interface PlayerRecord {
+  /** Supabase Auth user id. */
   id: string;
   name: string;
-  tokenHash: string;
+  avatarUrl?: string | null;
   createdAt: number;
 }
 
@@ -146,38 +149,74 @@ function fileBackend(): Backend {
 }
 
 // ---------------------------------------------------------------------------
-// Vercel Blob backend
+// Supabase backend
 
-const BLOB_PATH = "sudoku/db.json";
+export const STATE_TABLE = "sudoku_state";
+const STATE_ID = "main";
 /** Reads may be served from this instance's copy if it is at most this old. */
 const READ_MAX_AGE_MS = 1000;
 const MAX_WRITE_ATTEMPTS = 8;
 
-function blobBackend(): Backend {
-  let cache: { db: Db; etag: string | null; fetchedAt: number } | null = null;
+interface StateRow {
+  data: Db;
+  version: number;
+}
+
+/** The three queries the backend needs; a fake implements this in tests. */
+export interface StateStore {
+  load(): Promise<StateRow | null>;
+  /** Insert the first row; false if another instance created it first. */
+  create(data: Db): Promise<boolean>;
+  /** Replace the row if it is still at `version`; false on a concurrent write. */
+  replace(data: Db, version: number): Promise<boolean>;
+}
+
+function supabaseStateStore(url: string, secretKey: string): StateStore {
+  const supabase = createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const table = () => supabase.from(STATE_TABLE);
+  const fail = (what: string, message: string): never => {
+    throw new Error(`Supabase ${what} failed: ${message}${/relation|does not exist|schema cache/i.test(message) ? " — run supabase/schema.sql in the Supabase SQL editor" : ""}`);
+  };
+  return {
+    async load() {
+      const { data, error } = await table().select("data, version").eq("id", STATE_ID).maybeSingle();
+      if (error) fail("read", error.message);
+      return (data as StateRow | null) ?? null;
+    },
+    async create(data) {
+      const { error } = await table().insert({ id: STATE_ID, data, version: 1 });
+      if (!error) return true;
+      if (error.code === "23505") return false; // unique violation: someone else created it
+      return fail("insert", error.message);
+    },
+    async replace(data, version) {
+      const { data: rows, error } = await table()
+        .update({ data, version: version + 1, updated_at: new Date().toISOString() })
+        .eq("id", STATE_ID)
+        .eq("version", version)
+        .select("version");
+      if (error) fail("update", error.message);
+      return (rows?.length ?? 0) > 0;
+    },
+  };
+}
+
+export function stateStoreBackend(store: StateStore, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))): Backend {
+  let cache: { db: Db; version: number | null; fetchedAt: number } | null = null;
   let inflight: Promise<void> | null = null;
   const enqueue = serialQueue();
 
   async function refresh(): Promise<void> {
-    const result = await get(BLOB_PATH, {
-      access: "private",
-      useCache: false,
-      ...(cache?.etag ? { ifNoneMatch: cache.etag } : {}),
-    });
-    const now = Date.now();
-    if (!result) {
-      cache = { db: emptyDb(), etag: null, fetchedAt: now };
-    } else if (result.statusCode === 304 && cache) {
-      cache.fetchedAt = now;
-    } else if (result.statusCode === 200) {
-      const text = await new Response(result.stream).text();
-      cache = { db: { ...emptyDb(), ...(JSON.parse(text) as Db) }, etag: result.blob.etag, fetchedAt: now };
-    }
+    const row = await store.load();
+    cache = row
+      ? { db: { ...emptyDb(), ...row.data }, version: row.version, fetchedAt: Date.now() }
+      : { db: emptyDb(), version: null, fetchedAt: Date.now() };
   }
 
-  /** Ensures the cached copy is no older than `maxAgeMs`, coalescing concurrent fetches. */
-  async function fresh(maxAgeMs: number): Promise<NonNullable<typeof cache>> {
-    if (!cache || Date.now() - cache.fetchedAt > maxAgeMs) {
+  /** Ensures the cached copy is no older than `maxAgeMs` (or refetches when `force`), coalescing concurrent fetches. */
+  async function fresh(maxAgeMs: number, force = false): Promise<NonNullable<typeof cache>> {
+    if (force) await inflight; // don't reuse a fetch that may predate the conflict
+    if (force || !cache || Date.now() - cache.fetchedAt > maxAgeMs) {
       inflight ??= refresh().finally(() => {
         inflight = null;
       });
@@ -195,24 +234,14 @@ function blobBackend(): Backend {
         for (let attempt = 1; ; attempt++) {
           const draft = structuredClone(snapshot.db);
           const result = fn(draft); // throws → nothing is written
-          try {
-            const written = await put(BLOB_PATH, JSON.stringify(draft), {
-              access: "private",
-              contentType: "application/json",
-              addRandomSuffix: false,
-              cacheControlMaxAge: 60,
-              ...(snapshot.etag ? { allowOverwrite: true, ifMatch: snapshot.etag } : { allowOverwrite: false }),
-            });
-            cache = { db: draft, etag: written.etag, fetchedAt: Date.now() };
+          const ok = snapshot.version === null ? await store.create(draft) : await store.replace(draft, snapshot.version);
+          if (ok) {
+            cache = { db: draft, version: (snapshot.version ?? 0) + 1, fetchedAt: Date.now() };
             return result;
-          } catch (err) {
-            // A precondition failure (or "already exists" on first create) means
-            // another instance wrote first.
-            const conflict = err instanceof BlobPreconditionFailedError || (!snapshot.etag && err instanceof BlobError);
-            if (!conflict || attempt >= MAX_WRITE_ATTEMPTS) throw err;
-            await new Promise((r) => setTimeout(r, Math.random() * 40 * attempt));
-            snapshot = await fresh(0);
           }
+          if (attempt >= MAX_WRITE_ATTEMPTS) throw new Error("Too many concurrent writes — try again");
+          await sleep(Math.random() * 40 * attempt);
+          snapshot = await fresh(0, true);
         }
       }),
   };
@@ -223,7 +252,7 @@ function blobBackend(): Backend {
 // Serverless hosts have a read-only filesystem, so the file backend cannot
 // work there. Fail with a clear message instead of a generic EROFS 500.
 export const STORAGE_NOT_CONFIGURED =
-  "Storage isn't configured — connect a Vercel Blob store to this project (sets BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN), then redeploy";
+  "Storage isn't configured — set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel, then redeploy";
 
 function unconfiguredBackend(): Backend {
   const fail = async (): Promise<never> => {
@@ -233,18 +262,15 @@ function unconfiguredBackend(): Backend {
   return { read: fail, mutate: fail };
 }
 
-export function selectBackend(env: Record<string, string | undefined> = process.env): "blob" | "file" | "unconfigured" {
-  // Newer Blob connections authenticate with the deployment's OIDC token and
-  // only set BLOB_STORE_ID; older ones set a read-write token. @vercel/blob
-  // handles both, so either means Blob storage is available.
-  if (env.BLOB_STORE_ID || env.BLOB_READ_WRITE_TOKEN) return "blob";
+export function selectBackend(env: Record<string, string | undefined> = process.env): "supabase" | "file" | "unconfigured" {
+  if (env.NEXT_PUBLIC_SUPABASE_URL && supabaseSecretKey(env)) return "supabase";
   if (env.VERCEL && !env.SUDOKU_DATA_DIR) return "unconfigured";
   return "file";
 }
 
 const globalStore = globalThis as typeof globalThis & { __sudokuStore?: Backend };
 const backend: Backend = (globalStore.__sudokuStore ??= {
-  blob: blobBackend,
+  supabase: () => stateStoreBackend(supabaseStateStore(SUPABASE_URL, supabaseSecretKey())),
   file: fileBackend,
   unconfigured: unconfiguredBackend,
 }[selectBackend()]());
