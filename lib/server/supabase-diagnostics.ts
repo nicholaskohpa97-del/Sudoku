@@ -45,6 +45,8 @@ export function explainDbError(what: string, error: DbError, key: string, url = 
     advice = `Supabase's Data API can't see the public schema${inProject}. Go to Project Settings → Data API, turn the Data API on, make sure "public" is listed under Exposed schemas, and save.`;
   } else if (error.code === "PGRST205" || error.code === "42P01" || /schema cache|does not exist|relation/i.test(msg)) {
     advice = `The sudoku_state table is missing${inProject}. Open that project's SQL Editor, run supabase/schema.sql, then try again. If you already did, check you ran it in this project and that the Data API is on (Project Settings → Data API).`;
+  } else if (kind !== "public" && (error.code === "42501" || /permission denied/i.test(msg))) {
+    advice = `The secret key is right, but the database hasn't granted it access to sudoku_state${inProject}. In that project's SQL Editor run: grant usage on schema public to service_role; grant all on table public.sudoku_state to service_role; notify pgrst, 'reload schema';`;
   } else if (kind === "public" || error.code === "42501" || /permission denied/i.test(msg)) {
     advice =
       "SUPABASE_SERVICE_ROLE_KEY holds the public (anon/publishable) key. In Vercel, replace it with the service_role / secret key from Supabase → Project Settings → API Keys, then redeploy.";
