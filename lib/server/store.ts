@@ -11,11 +11,11 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { supabaseSecretKey, supabaseUrl } from "@/lib/supabase/env";
+import { supabaseConnections, type SupabaseConnection } from "@/lib/supabase/env";
 import type { Difficulty } from "@/lib/sudoku/engine";
 import type { RoomStatus } from "@/lib/sudoku/types";
 import { HttpError } from "./errors";
-import { explainDbError } from "./supabase-diagnostics";
+import { explainDbError, projectRef } from "./supabase-diagnostics";
 
 export interface PlayerRecord {
   id: string;
@@ -171,8 +171,67 @@ export interface StateStore {
   replace(data: Db, version: number): Promise<boolean>;
 }
 
+function supabaseClient(url: string, key: string) {
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+/** Does this connection reach a project with the game table? Returns Supabase's error if not. */
+export async function probeConnection(c: SupabaseConnection): Promise<{ code?: string; message: string } | null> {
+  try {
+    const { error } = await supabaseClient(c.url, c.key).from(STATE_TABLE).select("id").limit(1);
+    return error ? { code: error.code, message: error.message } : null;
+  } catch (err) {
+    return { message: (err as Error).message };
+  }
+}
+
+/**
+ * Picks the first connection whose project has the game table. If none do,
+ * returns null plus each connection's error so the caller can explain.
+ */
+export async function pickConnection(
+  connections: SupabaseConnection[],
+  probe: (c: SupabaseConnection) => Promise<{ code?: string; message: string } | null> = probeConnection,
+): Promise<{ chosen: SupabaseConnection | null; errors: { connection: SupabaseConnection; error: { code?: string; message: string } }[] }> {
+  const errors: { connection: SupabaseConnection; error: { code?: string; message: string } }[] = [];
+  for (const connection of connections) {
+    const error = await probe(connection);
+    if (!error) return { chosen: connection, errors };
+    errors.push({ connection, error });
+  }
+  return { chosen: null, errors };
+}
+
+/**
+ * State store over whichever Supabase connection has the table. The choice
+ * is made on first use and kept; while none has it, every call re-checks
+ * (so running schema.sql fixes things without a redeploy).
+ */
+function multiConnectionStateStore(connections: SupabaseConnection[]): StateStore {
+  let active: StateStore | null = null;
+  async function resolve(): Promise<StateStore> {
+    if (active) return active;
+    if (connections.length === 1) return (active = supabaseStateStore(connections[0].url, connections[0].key));
+    const { chosen, errors } = await pickConnection(connections);
+    if (chosen) {
+      console.info(`[sudoku] using Supabase project ${projectRef(chosen.url)} (${chosen.urlVar})`);
+      return (active = supabaseStateStore(chosen.url, chosen.key));
+    }
+    // None has the table: explain using the first error, listing every project we tried.
+    const first = errors[0];
+    const base = explainDbError("read", first.error, first.connection.key, first.connection.url);
+    const tried = errors.map((e) => `${projectRef(e.connection.url)} (${e.connection.urlVar})`).join(", ");
+    throw new HttpError(503, `${base.message} Projects checked: ${tried}.`);
+  }
+  return {
+    load: async () => (await resolve()).load(),
+    create: async (data) => (await resolve()).create(data),
+    replace: async (data, version) => (await resolve()).replace(data, version),
+  };
+}
+
 function supabaseStateStore(url: string, secretKey: string): StateStore {
-  const supabase = createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const supabase = supabaseClient(url, secretKey);
   const table = () => supabase.from(STATE_TABLE);
   const fail = (what: string, error: { code?: string; message: string }): never => {
     console.error(`[sudoku] Supabase ${what} failed:`, error.code, error.message);
@@ -264,14 +323,14 @@ function unconfiguredBackend(): Backend {
 }
 
 export function selectBackend(env: Record<string, string | undefined> = process.env): "supabase" | "file" | "unconfigured" {
-  if (supabaseUrl(env) && supabaseSecretKey(env)) return "supabase";
+  if (supabaseConnections(env).length) return "supabase";
   if (env.VERCEL && !env.SUDOKU_DATA_DIR) return "unconfigured";
   return "file";
 }
 
 const globalStore = globalThis as typeof globalThis & { __sudokuStore?: Backend };
 const backend: Backend = (globalStore.__sudokuStore ??= {
-  supabase: () => stateStoreBackend(supabaseStateStore(supabaseUrl(), supabaseSecretKey())),
+  supabase: () => stateStoreBackend(multiConnectionStateStore(supabaseConnections())),
   file: fileBackend,
   unconfigured: unconfiguredBackend,
 }[selectBackend()]());
