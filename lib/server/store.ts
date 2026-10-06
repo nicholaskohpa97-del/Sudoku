@@ -15,6 +15,7 @@ import { supabaseSecretKey, supabaseUrl } from "@/lib/supabase/env";
 import type { Difficulty } from "@/lib/sudoku/engine";
 import type { RoomStatus } from "@/lib/sudoku/types";
 import { HttpError } from "./errors";
+import { explainDbError } from "./supabase-diagnostics";
 
 export interface PlayerRecord {
   id: string;
@@ -173,20 +174,21 @@ export interface StateStore {
 function supabaseStateStore(url: string, secretKey: string): StateStore {
   const supabase = createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const table = () => supabase.from(STATE_TABLE);
-  const fail = (what: string, message: string): never => {
-    throw new Error(`Supabase ${what} failed: ${message}${/relation|does not exist|schema cache/i.test(message) ? " — run supabase/schema.sql in the Supabase SQL editor" : ""}`);
+  const fail = (what: string, error: { code?: string; message: string }): never => {
+    console.error(`[sudoku] Supabase ${what} failed:`, error.code, error.message);
+    throw explainDbError(what, error, secretKey);
   };
   return {
     async load() {
       const { data, error } = await table().select("data, version").eq("id", STATE_ID).maybeSingle();
-      if (error) fail("read", error.message);
+      if (error) fail("read", error);
       return (data as StateRow | null) ?? null;
     },
     async create(data) {
       const { error } = await table().insert({ id: STATE_ID, data, version: 1 });
       if (!error) return true;
       if (error.code === "23505") return false; // unique violation: someone else created it
-      return fail("insert", error.message);
+      return fail("insert", error);
     },
     async replace(data, version) {
       const { data: rows, error } = await table()
@@ -194,7 +196,7 @@ function supabaseStateStore(url: string, secretKey: string): StateStore {
         .eq("id", STATE_ID)
         .eq("version", version)
         .select("version");
-      if (error) fail("update", error.message);
+      if (error) fail("update", error);
       return (rows?.length ?? 0) > 0;
     },
   };
