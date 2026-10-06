@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { computeStandings, createLeague } from "@/lib/server/leagues";
 import { applyMove, createRoom, endRoom, finalizeIfDone, joinRoom, leaveRoom, roomView, startRoom } from "@/lib/server/rooms";
+import { explainDbError, keyKind } from "@/lib/server/supabase-diagnostics";
 import { selectBackend, stateStoreBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
 import {
   completedUnits,
@@ -387,5 +388,28 @@ describe("email invites", () => {
     const { subject, body } = inviteEmailText({ kind: "tournament", code: "K7PQ2M", name: "Koh Family Cup", url: "u" });
     assert.match(subject, /^A friend invited you to "Koh Family Cup"/);
     assert.match(body, /the "Koh Family Cup" Sudoku tournament/);
+  });
+});
+
+describe("supabase diagnostics", () => {
+  const jwt = (role: string) => `x.${Buffer.from(JSON.stringify({ role })).toString("base64url")}.y`;
+
+  it("classifies keys without exposing them", () => {
+    assert.equal(keyKind(""), "missing");
+    assert.equal(keyKind("sb_secret_abc"), "secret");
+    assert.equal(keyKind("sb_publishable_abc"), "public");
+    assert.equal(keyKind(jwt("service_role")), "secret");
+    assert.equal(keyKind(jwt("anon")), "public");
+    assert.equal(keyKind("garbage"), "unknown");
+  });
+
+  it("explains the common setup mistakes", () => {
+    const secret = "sb_secret_x";
+    assert.match(explainDbError("read", { code: "PGRST205", message: "Could not find the table 'public.sudoku_state' in the schema cache" }, secret).message, /run supabase\/schema\.sql/);
+    assert.match(explainDbError("read", { code: "42501", message: "permission denied for table sudoku_state" }, secret).message, /public \(anon\/publishable\) key/);
+    assert.match(explainDbError("read", { message: "anything" }, jwt("anon")).message, /public \(anon\/publishable\) key/);
+    assert.match(explainDbError("read", { message: "Invalid API key" }, secret).message, /rejected the key/);
+    assert.match(explainDbError("read", { message: "TypeError: fetch failed" }, secret).message, /Can't reach Supabase/);
+    assert.equal(explainDbError("read", { message: "x" }, secret).status, 503);
   });
 });
