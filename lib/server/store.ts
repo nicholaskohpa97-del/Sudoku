@@ -1,7 +1,7 @@
 // Persistence for players, rooms, leagues and match results.
 //
 // Two backends sit behind the same `read` / `mutate` interface:
-// - Supabase Postgres (when NEXT_PUBLIC_SUPABASE_URL and the secret key are
+// - Supabase Postgres (when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are
 //   set): the whole database is one JSONB row in `sudoku_state`
 //   (see supabase/schema.sql). Writes use optimistic concurrency on a
 //   `version` column and retry on conflict, so concurrent serverless
@@ -11,16 +11,15 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_URL, supabaseSecretKey } from "@/lib/supabase/env";
+import { supabaseSecretKey, supabaseUrl } from "@/lib/supabase/env";
 import type { Difficulty } from "@/lib/sudoku/engine";
 import type { RoomStatus } from "@/lib/sudoku/types";
 import { HttpError } from "./errors";
 
 export interface PlayerRecord {
-  /** Supabase Auth user id. */
   id: string;
   name: string;
-  avatarUrl?: string | null;
+  tokenHash: string;
   createdAt: number;
 }
 
@@ -252,7 +251,7 @@ export function stateStoreBackend(store: StateStore, sleep = (ms: number) => new
 // Serverless hosts have a read-only filesystem, so the file backend cannot
 // work there. Fail with a clear message instead of a generic EROFS 500.
 export const STORAGE_NOT_CONFIGURED =
-  "Storage isn't configured — set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel, then redeploy";
+  "Storage isn't configured — set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel, then redeploy";
 
 function unconfiguredBackend(): Backend {
   const fail = async (): Promise<never> => {
@@ -263,14 +262,14 @@ function unconfiguredBackend(): Backend {
 }
 
 export function selectBackend(env: Record<string, string | undefined> = process.env): "supabase" | "file" | "unconfigured" {
-  if (env.NEXT_PUBLIC_SUPABASE_URL && supabaseSecretKey(env)) return "supabase";
+  if (supabaseUrl(env) && supabaseSecretKey(env)) return "supabase";
   if (env.VERCEL && !env.SUDOKU_DATA_DIR) return "unconfigured";
   return "file";
 }
 
 const globalStore = globalThis as typeof globalThis & { __sudokuStore?: Backend };
 const backend: Backend = (globalStore.__sudokuStore ??= {
-  supabase: () => stateStoreBackend(supabaseStateStore(SUPABASE_URL, supabaseSecretKey())),
+  supabase: () => stateStoreBackend(supabaseStateStore(supabaseUrl(), supabaseSecretKey())),
   file: fileBackend,
   unconfigured: unconfiguredBackend,
 }[selectBackend()]());

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { computeStandings, createLeague } from "@/lib/server/leagues";
 import { applyMove, createRoom, endRoom, finalizeIfDone, joinRoom, leaveRoom, roomView, startRoom } from "@/lib/server/rooms";
-import { displayNameFrom } from "@/lib/server/http";
 import { selectBackend, stateStoreBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
 import {
   completedUnits,
@@ -14,7 +13,7 @@ import {
   MAX_MISTAKES,
   solvableWithSingles,
 } from "@/lib/sudoku/engine";
-import { parseInviteCode, safeNext } from "@/lib/sudoku/invite";
+import { inviteEmailText, inviteMailto, parseEmails, parseInviteCode } from "@/lib/sudoku/invite";
 import {
   comboMultiplier,
   dailyDifficulty,
@@ -84,7 +83,7 @@ describe("tournament scoring", () => {
 });
 
 describe("multiplayer rooms", () => {
-  const player = (id: string): PlayerRecord => ({ id, name: id.toUpperCase(), createdAt: 0 });
+  const player = (id: string): PlayerRecord => ({ id, name: id.toUpperCase(), tokenHash: "", createdAt: 0 });
   const setup = (n: number, withLeague = false) => {
     const db: Db = { version: 1, players: {}, rooms: {}, leagues: {}, matches: [] };
     const players = Array.from({ length: n }, (_, k) => player(`p${k}`));
@@ -188,27 +187,12 @@ describe("invites", () => {
   it("uses Supabase when configured and refuses the read-only file backend on Vercel", () => {
     const url = "https://abc.supabase.co";
     assert.equal(selectBackend({ VERCEL: "1" }), "unconfigured");
-    assert.equal(selectBackend({ VERCEL: "1", NEXT_PUBLIC_SUPABASE_URL: url }), "unconfigured"); // no secret key
-    assert.equal(selectBackend({ VERCEL: "1", NEXT_PUBLIC_SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: "k" }), "supabase");
+    assert.equal(selectBackend({ VERCEL: "1", SUPABASE_URL: url }), "unconfigured"); // no secret key
+    assert.equal(selectBackend({ VERCEL: "1", SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: "k" }), "supabase");
     assert.equal(selectBackend({ NEXT_PUBLIC_SUPABASE_URL: url, SUPABASE_SECRET_KEY: "sb_secret_x" }), "supabase");
     assert.equal(selectBackend({}), "file");
   });
 
-  it("only redirects back to same-site paths after sign-in", () => {
-    assert.equal(safeNext("/sudoku/room/ABC123"), "/sudoku/room/ABC123");
-    assert.equal(safeNext("/sudoku/league/X?y=1"), "/sudoku/league/X?y=1");
-    for (const bad of [null, "", "https://evil.example", "//evil.example", "/\\evil.example", "sudoku"]) {
-      assert.equal(safeNext(bad), "/sudoku");
-    }
-  });
-
-  it("names new players from their Google profile", () => {
-    assert.equal(displayNameFrom({ full_name: "Nicholas Koh" }, "n@x.com"), "Nicholas Koh");
-    assert.equal(displayNameFrom({ name: "  Auntie\tMay " }, undefined), "Auntie May");
-    assert.equal(displayNameFrom({}, "tan.ah.kow@gmail.com"), "tan.ah.kow");
-    assert.equal(displayNameFrom({ full_name: "A".repeat(40) }, undefined).length, 24);
-    assert.equal(displayNameFrom(undefined, undefined), "Player");
-  });
 });
 
 describe("unit completion", () => {
@@ -323,7 +307,7 @@ describe("supabase state backend", () => {
           calls.replace++;
           if (conflictsLeft > 0 && row) {
             conflictsLeft--;
-            row = { data: { ...row.data, players: { ...row.data.players, other: { id: "other", name: "Other", createdAt: 1 } } }, version: row.version + 1 };
+            row = { data: { ...row.data, players: { ...row.data.players, other: { id: "other", name: "Other", tokenHash: "", createdAt: 1 } } }, version: row.version + 1 };
           }
           if (!row || row.version !== version) return false;
           row = { data: structuredClone(data), version: version + 1 };
@@ -338,11 +322,11 @@ describe("supabase state backend", () => {
     const f = fakeStore();
     const backend = stateStoreBackend(f.store, noSleep);
     await backend.mutate((db) => {
-      db.players.a = { id: "a", name: "A", createdAt: 0 };
+      db.players.a = { id: "a", name: "A", tokenHash: "", createdAt: 0 };
     });
     assert.equal(f.row()?.version, 1);
     await backend.mutate((db) => {
-      db.players.b = { id: "b", name: "B", createdAt: 0 };
+      db.players.b = { id: "b", name: "B", tokenHash: "", createdAt: 0 };
     });
     assert.equal(f.row()?.version, 2);
     assert.deepEqual(Object.keys(f.row()!.data.players).sort(), ["a", "b"]);
@@ -352,11 +336,11 @@ describe("supabase state backend", () => {
     const f = fakeStore();
     const backend = stateStoreBackend(f.store, noSleep);
     await backend.mutate((db) => {
-      db.players.a = { id: "a", name: "A", createdAt: 0 };
+      db.players.a = { id: "a", name: "A", tokenHash: "", createdAt: 0 };
     });
     f.conflictNext(2);
     const result = await backend.mutate((db) => {
-      db.players.b = { id: "b", name: "B", createdAt: 0 };
+      db.players.b = { id: "b", name: "B", tokenHash: "", createdAt: 0 };
       return "ok";
     });
     assert.equal(result, "ok");
@@ -374,5 +358,34 @@ describe("supabase state backend", () => {
     );
     assert.equal(f.calls.create, 0);
     assert.equal(f.row(), null);
+  });
+});
+
+describe("email invites", () => {
+  it("splits, validates and de-duplicates pasted addresses", () => {
+    const { valid, invalid } = parseEmails("Auntie.May@Gmail.com, ben@yahoo.com;ben@yahoo.com\n<kim@x.sg>  not-an-email  a@b");
+    assert.deepEqual(valid, ["auntie.may@gmail.com", "ben@yahoo.com", "kim@x.sg"]);
+    assert.deepEqual(invalid, ["not-an-email", "a@b"]);
+    assert.deepEqual(parseEmails("   "), { valid: [], invalid: [] });
+  });
+
+  it("builds a mailto link with all recipients and the invite text", () => {
+    const href = inviteMailto(["a@x.com", "b+test@y.com"], {
+      kind: "room",
+      code: "ABC123",
+      url: "https://sudoku.example/sudoku/room/ABC123",
+      from: "Nic",
+    });
+    assert.ok(href.startsWith("mailto:a@x.com,b%2Btest@y.com?subject="));
+    const params = new URLSearchParams(href.slice(href.indexOf("?") + 1));
+    assert.match(params.get("subject")!, /^Nic invited you to a Sudoku race/);
+    assert.match(params.get("body")!, /https:\/\/sudoku\.example\/sudoku\/room\/ABC123/);
+    assert.match(params.get("body")!, /code ABC123/);
+  });
+
+  it("words tournament invites with the tournament name", () => {
+    const { subject, body } = inviteEmailText({ kind: "tournament", code: "K7PQ2M", name: "Koh Family Cup", url: "u" });
+    assert.match(subject, /^A friend invited you to "Koh Family Cup"/);
+    assert.match(body, /the "Koh Family Cup" Sudoku tournament/);
   });
 });

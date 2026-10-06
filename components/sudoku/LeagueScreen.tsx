@@ -100,6 +100,7 @@ function LeagueBody({ code }: { code: string }) {
             path={`/sudoku/league/${league.code}`}
             title={league.name}
             text={`Join my Sudoku tournament "${league.name}"`}
+            email={{ kind: "tournament", code: league.code, name: league.name }}
           />
         ) : (
           <button

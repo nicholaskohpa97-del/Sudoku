@@ -1,9 +1,11 @@
 "use client";
 
-import { Check, Copy, Share2, Star, Volume2, VolumeX } from "lucide-react";
+import { Check, Copy, Mail, Send, Share2, Star, Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { usePlayer } from "@/lib/sudoku/client";
 import { PEERS } from "@/lib/sudoku/engine";
+import { inviteEmailText, inviteMailto, MAX_EMAIL_INVITES, parseEmails, type InviteEmail } from "@/lib/sudoku/invite";
 import { setMuted, useMuted } from "@/lib/sudoku/sfx";
 
 const noopSubscribe = () => () => {};
@@ -253,41 +255,145 @@ export function MuteToggle() {
 }
 
 /**
- * Copy-link and native-share buttons for an invite. Copy always works
+ * Copy-link, native-share and email-invite buttons. Copy always works
  * (falls back to a prompt when the clipboard is blocked); Share is offered
  * only where the Web Share API exists, and cancelling it changes nothing.
  */
-export function InviteButtons({ path, title, text }: { path: string; title: string; text: string }) {
+export function InviteButtons({
+  path,
+  title,
+  text,
+  email,
+}: {
+  path: string;
+  title: string;
+  text: string;
+  /** Enables "Invite by email" with this wording. */
+  email?: Omit<InviteEmail, "url" | "from">;
+}) {
   const [copied, setCopied] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
   const isClient = useIsClient();
   const url = isClient ? `${window.location.origin}${path}` : path;
   const canShare = isClient && typeof navigator.share === "function";
   return (
-    <div className="flex flex-wrap gap-2">
-      <button
-        type="button"
-        className={buttonStyles.secondary}
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(url);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1800);
-          } catch {
-            prompt("Copy this invite link:", url);
-          }
-        }}
-      >
-        {copied ? <Check className="size-4" /> : <Copy className="size-4" />} {copied ? "Copied!" : "Copy invite link"}
-      </button>
-      {canShare ? (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
           className={buttonStyles.secondary}
-          onClick={() => navigator.share({ title, text, url }).catch(() => {})}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(url);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1800);
+            } catch {
+              prompt("Copy this invite link:", url);
+            }
+          }}
         >
-          <Share2 className="size-4" /> Share
+          {copied ? <Check className="size-4" /> : <Copy className="size-4" />} {copied ? "Copied!" : "Copy invite link"}
         </button>
+        {canShare ? (
+          <button
+            type="button"
+            className={buttonStyles.secondary}
+            onClick={() => navigator.share({ title, text, url }).catch(() => {})}
+          >
+            <Share2 className="size-4" /> Share
+          </button>
+        ) : null}
+        {email ? (
+          <button
+            type="button"
+            aria-expanded={emailOpen}
+            className={emailOpen ? buttonStyles.pink : buttonStyles.secondary}
+            onClick={() => setEmailOpen((o) => !o)}
+          >
+            <Mail className="size-4" /> Invite by email
+          </button>
+        ) : null}
+      </div>
+      {email && emailOpen ? <EmailInvite invite={{ ...email, url }} /> : null}
+    </div>
+  );
+}
+
+/** Type friends' addresses; opens the player's own email app with the invite written for them. */
+function EmailInvite({ invite }: { invite: Omit<InviteEmail, "from"> }) {
+  const { player } = usePlayer();
+  const [input, setInput] = useState("");
+  const [status, setStatus] = useState<"idle" | "opened" | "copied">("idle");
+  const { valid, invalid } = parseEmails(input);
+  const tooMany = valid.length > MAX_EMAIL_INVITES;
+  const full: InviteEmail = { ...invite, from: player?.name };
+
+  return (
+    <div className="animate-rise space-y-3 rounded-2xl border border-pink-300/30 bg-pink-400/[0.06] p-4">
+      <Field label="Friends' email addresses">
+        <textarea
+          className={`${inputStyles} min-h-20 resize-y`}
+          placeholder={"auntie.may@gmail.com, cousin.ben@yahoo.com"}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setStatus("idle");
+          }}
+          autoComplete="email"
+          inputMode="email"
+          spellCheck={false}
+        />
+      </Field>
+      {valid.length ? (
+        <ul className="flex flex-wrap gap-1.5" aria-label="Recipients">
+          {valid.map((e) => (
+            <li key={e} className="rounded-full bg-cyan-300/15 px-2.5 py-1 text-xs font-bold text-cyan-100">
+              {e}
+            </li>
+          ))}
+        </ul>
       ) : null}
+      {invalid.length ? (
+        <p className="text-xs font-semibold text-rose-300">
+          Check {invalid.length === 1 ? "this address" : "these"}: {invalid.join(", ")}
+        </p>
+      ) : null}
+      {tooMany ? <p className="text-xs font-semibold text-rose-300">Up to {MAX_EMAIL_INVITES} people at a time.</p> : null}
+      <div className="flex flex-wrap gap-2">
+        <a
+          href={valid.length && !tooMany ? inviteMailto(valid, full) : undefined}
+          aria-disabled={!valid.length || tooMany}
+          onClick={(e) => {
+            if (!valid.length || tooMany) e.preventDefault();
+            else setStatus("opened");
+          }}
+          className={`${buttonStyles.pink} ${!valid.length || tooMany ? "pointer-events-none opacity-40" : ""}`}
+        >
+          <Send className="size-4" /> Write email{valid.length > 1 ? ` to ${valid.length}` : ""}
+        </a>
+        <button
+          type="button"
+          className={buttonStyles.secondary}
+          onClick={async () => {
+            const { subject, body } = inviteEmailText(full);
+            try {
+              await navigator.clipboard.writeText(`${subject}\n\n${body}`);
+              setStatus("copied");
+            } catch {
+              prompt("Copy this invite:", body);
+            }
+          }}
+        >
+          <Copy className="size-4" /> Copy message
+        </button>
+      </div>
+      <p className="text-xs font-semibold text-stone-400">
+        {status === "opened"
+          ? "Your email app should now be open with the invite written. Just press Send. Nothing opened? Use Copy message and paste it into Gmail."
+          : status === "copied"
+            ? "Invite copied. Paste it into any email or chat."
+            : "Opens your own email app (Gmail, Mail, Outlook) with the invite ready to send, so it comes from you."}
+      </p>
     </div>
   );
 }

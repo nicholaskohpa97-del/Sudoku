@@ -5,7 +5,7 @@ import { mutate } from "@/lib/server/store";
 /** Create a multiplayer room; the creator becomes host. */
 export async function POST(request: Request) {
   return handle(async () => {
-    const player = await requirePlayer();
+    const player = await requirePlayer(request);
     const body = await readBody(request);
     const view = await mutate((db) => {
       const room = createRoom(db, player, body);

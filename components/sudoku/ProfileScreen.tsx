@@ -1,19 +1,19 @@
 "use client";
 
-import { Award, LogOut, Pencil, Star } from "lucide-react";
+import { Award, Pencil, Star } from "lucide-react";
 import { useState } from "react";
 import { formatDuration, usePlayer } from "@/lib/sudoku/client";
 import { DIFFICULTIES, DIFFICULTY_CONFIG, type Difficulty } from "@/lib/sudoku/engine";
 import { useProgress } from "@/lib/sudoku/profile";
 import { ACHIEVEMENTS, dayKey, liveStreak } from "@/lib/sudoku/progress";
 import { loadStats, type SoloStats } from "@/lib/sudoku/stats";
-import { GoogleButton, NameForm } from "./NameGate";
+import { NameForm } from "./NameGate";
 import { PlayerCard } from "./SudokuHub";
 import { DIFFICULTY_STYLE } from "./theme";
 import { BackLink, Panel, SectionTitle, useIsClient } from "./ui";
 
 export function ProfileScreen() {
-  const { player, ready, signOut } = usePlayer();
+  const { player, ready } = usePlayer();
   const progress = useProgress();
   const isClient = useIsClient();
   const [editing, setEditing] = useState(false);
@@ -33,34 +33,20 @@ export function ProfileScreen() {
   return (
     <div className="space-y-6">
       <BackLink />
-      <PlayerCard name={player?.name ?? null} avatarUrl={player?.avatarUrl} seed={player?.id} large />
+      <PlayerCard name={player?.name ?? null} large />
 
       {ready ? (
         <Panel className="space-y-3 !p-4">
-          {!player ? (
-            <>
-              <p className="text-sm font-semibold text-stone-300">Sign in to race friends and join tournaments.</p>
-              <GoogleButton />
-            </>
-          ) : editing ? (
-            <NameForm initial={player.name} onDone={() => setEditing(false)} />
+          {editing || !player ? (
+            <NameForm initial={player?.name ?? ""} submitLabel={player ? "Save" : "Set name"} onDone={() => setEditing(false)} />
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="flex items-center gap-2 text-sm font-semibold text-stone-300 hover:text-cyan-200"
-              >
-                <Pencil className="size-4" /> Change player name
-              </button>
-              <button
-                type="button"
-                onClick={() => void signOut()}
-                className="flex items-center gap-2 text-sm font-semibold text-stone-400 hover:text-rose-200"
-              >
-                <LogOut className="size-4" /> Sign out
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-2 text-sm font-semibold text-stone-300 hover:text-cyan-200"
+            >
+              <Pencil className="size-4" /> Change player name
+            </button>
           )}
         </Panel>
       ) : null}
@@ -122,7 +108,7 @@ export function ProfileScreen() {
       </section>
 
       <p className="text-center text-xs font-semibold text-stone-500">
-        XP and achievements are saved on this device. No ads, no trackers.
+        Progress is saved on this device. No ads, no trackers.
       </p>
     </div>
   );

@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/sudoku/rooms/[code]">) {
   return handle(async () => {
     const { code } = await ctx.params;
-    const viewer = await authenticate();
+    const viewer = await authenticate(request);
     const now = Date.now();
     // Only take the write path when a match has just run out of time.
     const stale = await read((db) => needsFinalize(getRoom(db, code), now));
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/sudoku/r
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/sudoku/rooms/[code]">) {
   return handle(async () => {
     const { code } = await ctx.params;
-    const player = await requirePlayer();
+    const player = await requirePlayer(request);
     const body = await readBody(request);
     const result = await mutate((db) => {
       const room = getRoom(db, code);

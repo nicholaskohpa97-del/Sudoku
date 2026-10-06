@@ -5,9 +5,9 @@ import { mutate, read } from "@/lib/server/store";
 export const dynamic = "force-dynamic";
 
 /** Leagues the current player belongs to. */
-export async function GET() {
+export async function GET(request: Request) {
   return handle(async () => {
-    const player = await requirePlayer();
+    const player = await requirePlayer(request);
     return json(await read((db) => myLeagues(db, player.id)));
   });
 }
@@ -15,7 +15,7 @@ export async function GET() {
 /** Create a league (a friend group with a monthly tournament). */
 export async function POST(request: Request) {
   return handle(async () => {
-    const player = await requirePlayer();
+    const player = await requirePlayer(request);
     const name = cleanName((await readBody(request)).name);
     const league = await mutate((db) => summarise(createLeague(db, player, name)));
     return json(league, 201);

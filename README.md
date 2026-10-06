@@ -1,6 +1,6 @@
 # Sudoku
 
-Neon-arcade Sudoku with four difficulty levels, a daily puzzle, combos, XP and achievements, multiplayer races for up to 20 friends and monthly tournaments. Sign in with Google to play with friends. Ad-free. Built with Next.js 16, TypeScript, Tailwind CSS v4 and Supabase.
+Neon-arcade Sudoku with four difficulty levels, a daily puzzle, combos, XP and achievements, multiplayer races for up to 20 friends and monthly tournaments. Invite friends by link, code or email. Ad-free. Built with Next.js 16, TypeScript, Tailwind CSS v4 and Supabase.
 
 ```bash
 npm install
@@ -36,28 +36,23 @@ Only matches with at least 2 players count. Months follow `TOURNAMENT_TZ` (defau
 | Engine | `lib/sudoku/engine.ts` | Seeded RNG, bitmask backtracking solver (picks the most constrained cell first), symmetric clue removal with a uniqueness check, and a singles-only grader that sets the difficulty. Pure TypeScript, shared by client and server. |
 | API | `app/api/sudoku/**/route.ts` | `players` (register/rename), `rooms` (create), `rooms/[code]` (GET to poll; POST for `join` / `leave` / `settings` / `start` / `move` / `end` / `lobby`), `leagues`, `leagues/[code]` (`?month=YYYY-MM`). |
 | Game rules | `lib/server/rooms.ts`, `lib/server/leagues.ts` | Room lifecycle, move checking, standings, result recording. |
-| Storage | `lib/server/store.ts`, `supabase/schema.sql` | **Supabase Postgres** when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set: the game database is one JSONB row in `sudoku_state`, written with optimistic concurrency on a `version` column (retries on conflict, so concurrent serverless instances never overwrite each other), plus a 1-second in-memory read cache. Only the server touches it (secret key; RLS blocks the browser key). **Otherwise a local JSON file** at `.data/sudoku.json` (override with `SUDOKU_DATA_DIR`). Online status is held in memory only. |
-| Identity | `lib/server/http.ts`, `lib/sudoku/client.ts`, `lib/supabase/*`, `proxy.ts`, `app/auth/callback` | **Google Sign-In via Supabase Auth** (PKCE). The session lives in cookies, `proxy.ts` refreshes it, and every API call verifies the JWT (`getClaims`). The player record is created from the Google name and photo on first sign-in, and players can rename themselves on the Profile page. Solo play needs no account. |
+| Storage | `lib/server/store.ts`, `supabase/schema.sql` | **Supabase Postgres** when `SUPABASE_URL` (or `NEXT_PUBLIC_SUPABASE_URL`) and `SUPABASE_SERVICE_ROLE_KEY` are set: the game database is one JSONB row in `sudoku_state`, written with optimistic concurrency on a `version` column (retries on conflict, so concurrent serverless instances never overwrite each other), plus a 1-second in-memory read cache. Only the server touches it (secret key; RLS blocks the browser key). **Otherwise a local JSON file** at `.data/sudoku.json` (override with `SUDOKU_DATA_DIR`). Online status is held in memory only. |
+| Identity | `lib/server/http.ts`, `lib/sudoku/client.ts` | No accounts. Each device registers a display name and gets a random token. The server stores only a SHA-256 hash of the token, and the client sends `Authorization: Bearer <id>:<token>`. |
+| Invites | `lib/sudoku/invite.ts`, `InviteButtons` in `components/sudoku/ui.tsx` | Copy link, native Share, and **Invite by email**: type or paste up to 20 addresses, and it opens the player's own email app (`mailto:`) with the invite and link already written. No mail server is needed, it's free, and the email comes from someone the friend knows. "Copy message" covers devices without a mail app. |
 | Game feel | `components/sudoku/juice.tsx`, `lib/sudoku/sfx.ts`, `app/globals.css` | Unit-completion detection lives in `completedUnits()` in `engine.ts`. Animations are CSS keyframes with a per-cell `--d` delay. Confetti uses a worker-free canvas so it stays within the CSP. |
 | UI | `components/sudoku/*`, `app/sudoku/**` | Clients poll the room every 1.5 s, which is plenty for 20 players and needs no WebSocket server. |
 
 ## Deployment notes
-### Supabase + Google Sign-In setup (one-off)
-1. **Create the table:** Supabase → SQL Editor → paste `supabase/schema.sql` → Run.
-2. **Google OAuth client:** Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (Web application).
-   - Authorized JavaScript origin: your site, e.g. `https://sudoku-friends.vercel.app`.
-   - Authorized redirect URI: `https://<project-ref>.supabase.co/auth/v1/callback`.
-3. **Supabase → Authentication → Sign In / Providers → Google:** enable it and paste the client ID and secret.
-4. **Supabase → Authentication → URL Configuration:**
-   - Site URL: your production URL.
-   - Redirect URLs: `https://<your-domain>/auth/callback`, `https://*-nic-s-projects88.vercel.app/**` (previews) and `http://localhost:3000/**`.
-5. **Vercel → Settings → Environment Variables** (Production and Preview), then redeploy. `NEXT_PUBLIC_*` values are baked in at build time, so a redeploy is required.
-   - `NEXT_PUBLIC_SUPABASE_URL`: Project URL (Supabase → Project Settings → API).
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: the anon / publishable key.
-   - `SUPABASE_SERVICE_ROLE_KEY`: the service_role / secret key. Server only; never prefix it with `NEXT_PUBLIC_`.
+### Supabase setup (one-off, free plan)
+1. **Create a project:** supabase.com → New project. Use region Southeast Asia (Singapore).
+2. **Create the table:** SQL Editor → New query → paste `supabase/schema.sql` → Run.
+3. **Connect it to Vercel:**
+   - **Easiest:** Supabase → Project Settings → Integrations → Vercel → connect the `sudoku-friends` project. This sets `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+   - **Manual alternative:** in Vercel → Settings → Environment Variables, add both for Production and Preview. You'll find them in Supabase → Project Settings → API.
+4. **Redeploy** in Vercel.
 
 ### Notes
-- **Without Supabase variables** the game still runs. Solo play works, and multiplayer shows "Sign-in isn't set up". On Vercel the API answers 503 "Storage isn't configured" rather than failing on the read-only filesystem.
-- **Local dev:** put the same three variables in `.env.local` to use your Supabase project.
+- **Without Supabase variables:** on Vercel the API answers 503 "Storage isn't configured" rather than failing on the read-only filesystem. Locally it uses `.data/sudoku.json`.
+- **Free plan pause:** a free Supabase project pauses after about a week without traffic. Resume it from the dashboard.
+- **Identity is tied to the device.** Clearing site data or switching phones creates a new player.
 - **Scale:** one JSONB document is fine for friends and family. For hundreds of concurrent players, split it into per-room rows (the `Backend` interface in `store.ts` is the seam).
-- **Progression** (XP, streaks, achievements) is still stored per device. Moving it to the player's account is the natural next step now that accounts exist.
