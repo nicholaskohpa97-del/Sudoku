@@ -32,7 +32,9 @@ export async function GET() {
   } catch (err) {
     const hint =
       backend === "supabase" && !inUse
-        ? "None of these projects has the sudoku_state table. If your project isn't listed, its connection isn't in this deployment yet: check Vercel → Storage (Production ticked) and redeploy."
+        ? connections.some((c) => c.table.code === "42501")
+          ? "The table exists but the server key isn't allowed to use it yet. Run the grant statements from the problem message in the Supabase SQL Editor."
+          : "None of these projects has the sudoku_state table. If your project isn't listed, its connection isn't in this deployment yet: check Vercel → Storage (Production ticked) and redeploy."
         : undefined;
     return json({ ok: false, ...base, problem: (err as Error).message, hint }, 503);
   }

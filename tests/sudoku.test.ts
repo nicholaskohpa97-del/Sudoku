@@ -407,7 +407,8 @@ describe("supabase diagnostics", () => {
   it("explains the common setup mistakes", () => {
     const secret = "sb_secret_x";
     assert.match(explainDbError("read", { code: "PGRST205", message: "Could not find the table 'public.sudoku_state' in the schema cache" }, secret).message, /run supabase\/schema\.sql/);
-    assert.match(explainDbError("read", { code: "42501", message: "permission denied for table sudoku_state" }, secret).message, /public \(anon\/publishable\) key/);
+    assert.match(explainDbError("read", { code: "42501", message: "permission denied for table sudoku_state" }, secret).message, /grant all on table public\.sudoku_state to service_role/);
+    assert.match(explainDbError("read", { code: "42501", message: "permission denied" }, jwt("anon")).message, /public \(anon\/publishable\) key/);
     assert.match(explainDbError("read", { message: "anything" }, jwt("anon")).message, /public \(anon\/publishable\) key/);
     assert.match(explainDbError("read", { message: "Invalid API key" }, secret).message, /rejected the key/);
     assert.match(explainDbError("read", { message: "TypeError: fetch failed" }, secret).message, /Can't reach Supabase/);

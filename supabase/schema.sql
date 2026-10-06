@@ -16,7 +16,9 @@ create table if not exists public.sudoku_state (
 -- publishable) key used in the browser can neither read nor write it.
 alter table public.sudoku_state enable row level security;
 revoke all on public.sudoku_state from anon, authenticated;
-grant all on public.sudoku_state to service_role;
+-- Newer Supabase projects don't grant new tables to any role automatically.
+grant usage on schema public to service_role;
+grant all on table public.sudoku_state to service_role;
 
 -- Make the Data API notice the new table immediately.
 notify pgrst, 'reload schema';
