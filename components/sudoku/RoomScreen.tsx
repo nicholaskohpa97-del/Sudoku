@@ -270,7 +270,12 @@ function Lobby({
             {room.league ? ` Matches here count toward the ${room.league.name} monthly tournament.` : ""}
           </p>
         </div>
-        <InviteButtons path={`/sudoku/room/${room.code}`} title={`Sudoku room ${room.code}`} text={`Join my Sudoku room ${room.code}`} />
+        <InviteButtons
+          path={`/sudoku/room/${room.code}`}
+          title={`Sudoku room ${room.code}`}
+          text={`Join my Sudoku room ${room.code}`}
+          email={{ kind: "room", code: room.code }}
+        />
 
         {isHost ? (
           <div className="grid gap-4 border-t border-white/10 pt-5 sm:grid-cols-2">

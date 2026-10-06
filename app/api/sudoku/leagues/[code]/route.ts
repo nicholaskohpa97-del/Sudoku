@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/sudoku/leagues/[code]">) {
   return handle(async () => {
     const { code } = await ctx.params;
-    const viewer = await authenticate();
+    const viewer = await authenticate(request);
     const month = request.nextUrl.searchParams.get("month");
     return json(await read((db) => leagueView(db, getLeague(db, code), viewer?.id ?? null, month)));
   });
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/sudoku/l
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/sudoku/leagues/[code]">) {
   return handle(async () => {
     const { code } = await ctx.params;
-    const player = await requirePlayer();
+    const player = await requirePlayer(request);
     const { action } = await readBody(request);
     const result = await mutate((db) => {
       const league = getLeague(db, code);

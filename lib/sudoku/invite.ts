@@ -25,11 +25,68 @@ export function parseInviteCode(input: string): string {
   return normaliseCode(raw);
 }
 
-/**
- * Where to send the player after Google sign-in. Only same-site relative
- * paths are allowed, so the callback can't be used as an open redirect.
- */
-export function safeNext(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/sudoku";
-  return value;
+
+// ---------------------------------------------------------------------------
+// Email invites. The game has no mail server (that would need a paid/verified
+// sending domain), so invites open the player's own email app with the
+// message pre-written: free, and it arrives from someone the friend knows.
+
+export const MAX_EMAIL_INVITES = 20;
+
+// Deliberately simple: one "@", no spaces, a dot in the domain.
+const EMAIL = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]{2,}$/;
+
+/** Splits pasted text (commas, semicolons, spaces, new lines) into valid and invalid addresses, de-duplicated. */
+export function parseEmails(input: string): { valid: string[]; invalid: string[] } {
+  const valid: string[] = [];
+  const invalid: string[] = [];
+  for (const raw of input.split(/[\s,;]+/)) {
+    const token = raw.replace(/^<|>$/g, "").trim();
+    if (!token) continue;
+    const email = token.toLowerCase();
+    if (!EMAIL.test(email)) {
+      if (!invalid.includes(token)) invalid.push(token);
+    } else if (!valid.includes(email)) {
+      valid.push(email);
+    }
+  }
+  return { valid, invalid };
+}
+
+export interface InviteEmail {
+  /** "room" or "tournament", for the wording. */
+  kind: "room" | "tournament";
+  code: string;
+  url: string;
+  /** Tournament name, if any. */
+  name?: string;
+  /** Who is inviting (player name). */
+  from?: string | null;
+}
+
+export function inviteEmailText(invite: InviteEmail): { subject: string; body: string } {
+  const who = invite.from?.trim() || "A friend";
+  const what =
+    invite.kind === "room" ? `a Sudoku race (room ${invite.code})` : `the "${invite.name ?? invite.code}" Sudoku tournament`;
+  const subject = `${who} invited you to ${invite.kind === "room" ? "a Sudoku race" : `"${invite.name ?? "a Sudoku tournament"}"`} 🧩`;
+  const body = [
+    `Hi!`,
+    ``,
+    `${who} has invited you to ${what}.`,
+    ``,
+    `Tap to join: ${invite.url}`,
+    ``,
+    `Or open the game and enter the code ${invite.code}. No sign-up needed, just pick a player name.`,
+    ``,
+    `See you on the grid!`,
+  ].join("\n");
+  return { subject, body };
+}
+
+/** mailto: link with every recipient and the pre-written invite. */
+export function inviteMailto(emails: string[], invite: InviteEmail): string {
+  const { subject, body } = inviteEmailText(invite);
+  // Commas between addresses must stay literal; only the parts are encoded.
+  const to = emails.map((e) => encodeURIComponent(e).replace(/%40/g, "@")).join(",");
+  return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }

@@ -1,7 +1,6 @@
-import { randomBytes } from "node:crypto";
-import { supabaseServer } from "@/lib/supabase/server";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { HttpError } from "./errors";
-import { mutate, read, type PlayerRecord } from "./store";
+import { read, type PlayerRecord } from "./store";
 
 export { HttpError };
 
@@ -30,7 +29,8 @@ export async function readBody(request: Request): Promise<Record<string, unknown
 }
 
 // ---------------------------------------------------------------------------
-// Codes and names
+// Identity: lightweight device-bound players. The client stores
+// `{ id, token }` locally and sends `Authorization: Bearer <id>:<token>`.
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
 
@@ -43,6 +43,14 @@ export function newId(): string {
   return randomBytes(9).toString("base64url");
 }
 
+export function newToken(): string {
+  return randomBytes(24).toString("base64url");
+}
+
+export function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
 export function cleanName(value: unknown): string {
   if (typeof value !== "string") throw new HttpError(400, "Name is required");
   const name = value.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim();
@@ -52,56 +60,22 @@ export function cleanName(value: unknown): string {
 
 export { normaliseCode } from "@/lib/sudoku/invite";
 
-// ---------------------------------------------------------------------------
-// Identity: Google accounts via Supabase Auth. The session lives in cookies;
-// the JWT is verified on every request, and the player record is created
-// from the Google profile the first time we see a user.
-
-interface AuthUser {
-  id: string;
-  name: string;
-  avatarUrl: string | null;
-}
-
-/** Display name from Google profile metadata, trimmed to the 24-char limit. */
-export function displayNameFrom(meta: Record<string, unknown> | undefined, email: string | undefined): string {
-  const candidates = [meta?.full_name, meta?.name, meta?.given_name, email?.split("@")[0]];
-  for (const c of candidates) {
-    if (typeof c !== "string") continue;
-    const name = c.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 24).trim();
-    if (name) return name;
-  }
-  return "Player";
-}
-
-async function currentUser(): Promise<AuthUser | null> {
-  const supabase = await supabaseServer();
-  if (!supabase) return null;
-  const { data, error } = await supabase.auth.getClaims();
-  const claims = data?.claims;
-  if (error || !claims?.sub) return null;
-  const meta = claims.user_metadata as Record<string, unknown> | undefined;
-  return {
-    id: claims.sub,
-    name: displayNameFrom(meta, typeof claims.email === "string" ? claims.email : undefined),
-    avatarUrl: typeof meta?.avatar_url === "string" ? meta.avatar_url : typeof meta?.picture === "string" ? meta.picture : null,
-  };
-}
-
-export async function authenticate(): Promise<PlayerRecord | null> {
-  const user = await currentUser();
-  if (!user) return null;
-  const existing = await read((db) => db.players[user.id] ?? null);
-  if (existing) return existing;
-  // First visit: create the player from the Google profile.
-  return mutate((db) => {
-    db.players[user.id] ??= { id: user.id, name: user.name, avatarUrl: user.avatarUrl, createdAt: Date.now() };
-    return db.players[user.id];
+export async function authenticate(request: Request): Promise<PlayerRecord | null> {
+  const header = request.headers.get("authorization") ?? "";
+  const match = /^Bearer ([\w-]+):([\w-]+)$/.exec(header);
+  if (!match) return null;
+  const [, id, token] = match;
+  return read((db) => {
+    const player = db.players[id];
+    if (!player) return null;
+    const expected = Buffer.from(player.tokenHash, "hex");
+    const actual = Buffer.from(hashToken(token), "hex");
+    return expected.length === actual.length && timingSafeEqual(expected, actual) ? player : null;
   });
 }
 
-export async function requirePlayer(): Promise<PlayerRecord> {
-  const player = await authenticate();
-  if (!player) throw new HttpError(401, "Sign in with Google to play with friends");
+export async function requirePlayer(request: Request): Promise<PlayerRecord> {
+  const player = await authenticate(request);
+  if (!player) throw new HttpError(401, "Set a player name first");
   return player;
 }
