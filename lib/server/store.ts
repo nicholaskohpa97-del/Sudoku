@@ -176,7 +176,7 @@ function supabaseStateStore(url: string, secretKey: string): StateStore {
   const table = () => supabase.from(STATE_TABLE);
   const fail = (what: string, error: { code?: string; message: string }): never => {
     console.error(`[sudoku] Supabase ${what} failed:`, error.code, error.message);
-    throw explainDbError(what, error, secretKey);
+    throw explainDbError(what, error, secretKey, url);
   };
   return {
     async load() {

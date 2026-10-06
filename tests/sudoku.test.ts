@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { computeStandings, createLeague } from "@/lib/server/leagues";
 import { applyMove, createRoom, endRoom, finalizeIfDone, joinRoom, leaveRoom, roomView, startRoom } from "@/lib/server/rooms";
-import { explainDbError, keyKind } from "@/lib/server/supabase-diagnostics";
+import { explainDbError, keyKind, projectRef } from "@/lib/server/supabase-diagnostics";
 import { selectBackend, stateStoreBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
 import {
   completedUnits,
@@ -411,5 +411,15 @@ describe("supabase diagnostics", () => {
     assert.match(explainDbError("read", { message: "Invalid API key" }, secret).message, /rejected the key/);
     assert.match(explainDbError("read", { message: "TypeError: fetch failed" }, secret).message, /Can't reach Supabase/);
     assert.equal(explainDbError("read", { message: "x" }, secret).status, 503);
+  });
+});
+
+describe("supabase diagnostics: data API and project", () => {
+  const url = "https://vlspwmpdzdviqnmyclzs.supabase.co";
+  it("names the project and spots a disabled or unexposed Data API", () => {
+    assert.equal(projectRef(url), "vlspwmpdzdviqnmyclzs");
+    assert.match(explainDbError("read", { code: "PGRST205", message: "Could not find the table" }, "sb_secret_x", url).message, /missing in Supabase project "vlspwmpdzdviqnmyclzs"/);
+    assert.match(explainDbError("read", { code: "PGRST106", message: "Invalid schema: public" }, "sb_secret_x", url).message, /Data API/);
+    assert.match(explainDbError("read", { message: "The schema must be one of the following: graphql_public" }, "sb_secret_x").message, /Exposed schemas/);
   });
 });
