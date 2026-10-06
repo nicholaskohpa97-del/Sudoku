@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 import { computeStandings, createLeague } from "@/lib/server/leagues";
 import { applyMove, createRoom, endRoom, finalizeIfDone, joinRoom, leaveRoom, roomView, startRoom } from "@/lib/server/rooms";
 import { explainDbError, keyKind, projectRef } from "@/lib/server/supabase-diagnostics";
-import { selectBackend, stateStoreBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
+import { supabaseConnections } from "@/lib/supabase/env";
+import { pickConnection, selectBackend, stateStoreBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
 import {
   completedUnits,
   countClues,
@@ -421,5 +422,57 @@ describe("supabase diagnostics: data API and project", () => {
     assert.match(explainDbError("read", { code: "PGRST205", message: "Could not find the table" }, "sb_secret_x", url).message, /missing in Supabase project "vlspwmpdzdviqnmyclzs"/);
     assert.match(explainDbError("read", { code: "PGRST106", message: "Invalid schema: public" }, "sb_secret_x", url).message, /Data API/);
     assert.match(explainDbError("read", { message: "The schema must be one of the following: graphql_public" }, "sb_secret_x").message, /Exposed schemas/);
+  });
+});
+
+describe("supabase connections", () => {
+  const A = "https://vlspwmpdzdviqnmyclzs.supabase.co";
+  const B = "https://mylivegameproject.supabase.co";
+
+  it("finds plain and prefixed connections, override first", () => {
+    const found = supabaseConnections({
+      SUPABASE_URL: A,
+      SUPABASE_SERVICE_ROLE_KEY: "sb_secret_a",
+      MYDB_SUPABASE_URL: B,
+      MYDB_SUPABASE_SERVICE_ROLE_KEY: "sb_secret_b",
+      SUDOKU_SUPABASE_URL: B + "/",
+      SUDOKU_SUPABASE_SECRET_KEY: "sb_secret_c",
+      STRIPE_SECRET_KEY: "nope",
+    });
+    assert.deepEqual(
+      found.map((c) => [c.urlVar, c.keyVar]),
+      [
+        ["SUDOKU_SUPABASE_URL", "SUDOKU_SUPABASE_SECRET_KEY"],
+        ["MYDB_SUPABASE_URL", "MYDB_SUPABASE_SERVICE_ROLE_KEY"],
+        ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"],
+      ],
+    );
+    assert.equal(found[0].url, B); // trailing slash trimmed
+  });
+
+  it("pairs NEXT_PUBLIC urls and ignores urls without a key", () => {
+    assert.deepEqual(
+      supabaseConnections({ NEXT_PUBLIC_SUPABASE_URL: B, SUPABASE_SERVICE_ROLE_KEY: "k" }).map((c) => c.urlVar),
+      ["NEXT_PUBLIC_SUPABASE_URL"],
+    );
+    assert.deepEqual(supabaseConnections({ SUPABASE_URL: A }), []);
+    assert.deepEqual(supabaseConnections({ SUPABASE_URL: "not a url", SUPABASE_SERVICE_ROLE_KEY: "k" }), []);
+  });
+
+  it("uses the project that has the table", async () => {
+    const conns = supabaseConnections({
+      SUPABASE_URL: A,
+      SUPABASE_SERVICE_ROLE_KEY: "ka",
+      MYDB_SUPABASE_URL: B,
+      MYDB_SUPABASE_SERVICE_ROLE_KEY: "kb",
+    });
+    // MYDB_ (B) is checked first; it lacks the table, so the plain connection (A) wins.
+    const probe = async (c: { url: string }) => (c.url === A ? null : { code: "PGRST205", message: "missing" });
+    const { chosen, errors } = await pickConnection(conns, probe);
+    assert.equal(chosen?.url, A);
+    assert.deepEqual(errors.map((e) => e.connection.url), [B]);
+    const none = await pickConnection(conns, async () => ({ message: "missing" }));
+    assert.equal(none.chosen, null);
+    assert.equal(none.errors.length, 2);
   });
 });
