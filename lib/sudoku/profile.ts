@@ -67,6 +67,8 @@ export function useProgress(): Progress | null {
 
 export interface Award {
   xp: number;
+  /** Leaderboard points banked for this solve (after the chain multiplier). */
+  points: number;
   lines: XpLine[];
   levelBefore: number;
   xpBefore: number;
@@ -90,6 +92,7 @@ function apply(lines: XpLine[], mutate: (p: Progress) => void, event: Parameters
     levelBefore: levelInfo(xpBefore).level,
     xpBefore,
     xpAfter: p.xp,
+    points: 0,
     unlocked,
     streak: p.streak,
   };
@@ -97,16 +100,22 @@ function apply(lines: XpLine[], mutate: (p: Progress) => void, event: Parameters
 
 export function awardSolve(input: {
   difficulty: Difficulty;
+  /** Lives lost. */
   mistakes: number;
   elapsedMs: number;
   maxCombo: number;
   daily?: boolean;
+  /** Points banked after the chain multiplier (0 in practice mode). */
+  points?: number;
+  chainCount?: number;
 }): Award {
   const { lines } = solveXp(input);
   const today = dayKey();
-  return apply(
+  const award = apply(
     lines,
     (p) => {
+      p.points += input.points ?? 0;
+      p.bestChain = Math.max(p.bestChain, input.chainCount ?? 0);
       p.solves += 1;
       if (input.mistakes === 0) p.flawless += 1;
       p.bestCombo = Math.max(p.bestCombo, input.maxCombo);
@@ -118,6 +127,7 @@ export function awardSolve(input: {
     },
     { solved: input },
   );
+  return { ...award, points: input.points ?? 0 };
 }
 
 /** Records a moment during play (combo peak, multi-unit clear) that can unlock achievements. */

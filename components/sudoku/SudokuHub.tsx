@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Check, ChevronRight, Flame, Play, Star, Trophy, Users } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, Flame, Mountain, Play, Star, Trophy, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -30,6 +30,7 @@ export function SudokuHub() {
     <div className="space-y-8">
       <PlayerCard name={player?.name ?? null} />
       <DailyHero />
+      <ModesSection />
       <SoloSection />
 
       {ready ? (
@@ -158,7 +159,7 @@ function DailyHeroInner() {
                 puzzle
               </p>
               <p className="text-sm font-semibold text-stone-400">
-                {formatDuration(saved.elapsedMs)} played · {MAX_LIVES - saved.mistakes} ♥ left
+                {formatDuration(saved.elapsedMs)} played · {saved.lives === 0 ? "∞" : `${Math.max(0, saved.lives - saved.livesLost)} ♥`} left
               </p>
             </div>
             <Link href={`/sudoku/play/${saved.difficulty}`} className={`${buttonStyles.secondary} w-full`}>
@@ -182,17 +183,43 @@ function DailyHeroInner() {
   );
 }
 
-const MAX_LIVES = 3;
+function ModesSection() {
+  const modes = [
+    { href: "#levels", label: "Single player", hint: "Six levels, from Beginner to Master", icon: Play, tone: "text-cyan-300 border-cyan-300/30" },
+    { href: "#rooms", label: "Multiplayer", hint: "Race up to 20 friends", icon: Users, tone: "text-pink-300 border-pink-300/30" },
+    { href: "/sudoku/ascent", label: "Ascent", hint: "Climb a tier per clear on one pool of lives", icon: Mountain, tone: "text-violet-300 border-violet-300/30" },
+    { href: "/sudoku/leaderboard", label: "Leaderboard", hint: "Post scores and challenge anyone's puzzle", icon: Trophy, tone: "text-yellow-300 border-yellow-300/30" },
+  ];
+  return (
+    <section aria-label="Game modes" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {modes.map(({ href, label, hint, icon: Icon, tone }) => (
+        <Link
+          key={label}
+          href={href}
+          className={`group flex items-center gap-3 rounded-2xl border bg-white/[0.03] p-3 transition hover:bg-white/[0.07] ${tone}`}
+        >
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/[0.06]">
+            <Icon className="size-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block font-display text-base font-semibold text-stone-100">{label}</span>
+            <span className="block text-xs font-semibold text-stone-400">{hint}</span>
+          </span>
+        </Link>
+      ))}
+    </section>
+  );
+}
 
 function SoloSection() {
   const isClient = useIsClient();
   const stats: Partial<Record<Difficulty, SoloStats>> = isClient ? loadStats() : {};
   return (
-    <section className="space-y-3">
+    <section id="levels" className="scroll-mt-6 space-y-3">
       <SectionTitle icon={<Star />} tone="gold">
         Pick your level
       </SectionTitle>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {DIFFICULTIES.map((d, k) => {
           const s = stats[d];
           const style = DIFFICULTY_STYLE[d];
@@ -204,7 +231,7 @@ function SoloSection() {
               className={`group animate-rise relative overflow-hidden rounded-3xl border-2 bg-gradient-to-b p-4 transition hover:-translate-y-1 ${style.border} ${style.glow} ${style.gradient}`}
             >
               <div className="flex gap-0.5">
-                {Array.from({ length: 4 }, (_, i) => (
+                {Array.from({ length: 6 }, (_, i) => (
                   <Star
                     key={i}
                     className={`size-3.5 ${i < style.stars ? `fill-current ${style.text}` : "text-stone-600"}`}

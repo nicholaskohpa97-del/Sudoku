@@ -39,6 +39,8 @@ export interface RoomRecord {
   hostId: string;
   difficulty: Difficulty;
   maxPlayers: number;
+  /** Lives each player gets, chosen by the host. Older rooms have none: that means 3. */
+  lives?: number;
   leagueCode: string | null;
   status: RoomStatus;
   round: number;
@@ -82,12 +84,65 @@ export interface MatchRecord {
   results: MatchResult[];
 }
 
+/** A verified solo result on the leaderboard: one per player per puzzle. */
+export interface ScoreRecord {
+  id: string;
+  playerId: string;
+  /** The puzzle's identity; `puzzle` is its grid. */
+  baseId: string;
+  seed: number;
+  puzzle: string;
+  difficulty: Difficulty;
+  rating: number;
+  parMs: number;
+  /** Puzzle score recomputed by the server from the move log (no chain multiplier). */
+  score: number;
+  elapsedMs: number;
+  /** Lives chosen for the game. */
+  lives: number;
+  livesLost: number;
+  hints: number;
+  maxCombo: number;
+  at: number;
+  source: "post" | "daily" | "challenge";
+  /** The score this attempt was made against. */
+  challengeOf?: string;
+  daily?: string;
+  /** Kept off the public boards (suspiciously fast), still visible to its owner. */
+  flagged: boolean;
+}
+
+/** A player's single scored attempt at someone else's posted puzzle. */
+export interface AttemptRecord {
+  id: string;
+  playerId: string;
+  scoreId: string;
+  puzzle: string;
+  startedAt: number;
+  doneAt?: number;
+}
+
+export interface NotificationRecord {
+  id: string;
+  playerId: string;
+  at: number;
+  kind: "dethroned" | "dethroned-board" | "beaten";
+  title: string;
+  body: string;
+  href: string;
+  read: boolean;
+}
+
 export interface Db {
   version: 1;
   players: Record<string, PlayerRecord>;
   rooms: Record<string, RoomRecord>;
   leagues: Record<string, LeagueRecord>;
   matches: MatchRecord[];
+  /** Added with the leaderboard; absent in older documents. */
+  scores?: ScoreRecord[];
+  attempts?: AttemptRecord[];
+  notifications?: NotificationRecord[];
 }
 
 function emptyDb(): Db {

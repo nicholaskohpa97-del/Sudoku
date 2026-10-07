@@ -6,22 +6,14 @@ import type { Difficulty } from "./engine";
 // ---------------------------------------------------------------------------
 // XP and levels
 
-export const XP_BASE: Record<Difficulty, number> = { easy: 50, medium: 100, hard: 175, expert: 275 };
+export const XP_BASE: Record<Difficulty, number> = { beginner: 25, easy: 50, medium: 100, hard: 175, expert: 275, master: 450 };
 export const FLAWLESS_XP_MULTIPLIER = 1.5;
 export const COMBO_XP_PER_STEP = 5;
 export const DAILY_XP_BONUS = 50;
 export const ROOM_WIN_XP = 100;
 export const ROOM_FINISH_XP = 40;
 
-/** Combo window: consecutive correct entries within this many ms keep the combo alive. */
-export const COMBO_WINDOW_MS = 8000;
-
-/** Score multiplier shown for a combo of `count` consecutive correct entries. */
-export function comboMultiplier(count: number): 1 | 2 | 3 {
-  if (count >= 8) return 3;
-  if (count >= 4) return 2;
-  return 1;
-}
+export { comboMultiplier } from "./scoring";
 
 export interface XpLine {
   label: string;
@@ -69,11 +61,18 @@ export function levelInfo(xp: number): { level: number; title: string; into: num
 
 /** "Par" solve times; beating par earns a star. */
 export const PAR_MS: Record<Difficulty, number> = {
+  beginner: 4 * 60_000,
   easy: 6 * 60_000,
   medium: 10 * 60_000,
   hard: 18 * 60_000,
   expert: 28 * 60_000,
+  master: 40 * 60_000,
 };
+
+/** Stars from the puzzle's own par: 1 for solving, +1 for no lives lost or hints, +1 for beating par. */
+export function starsForPar(parMs: number, livesLost: number, hints: number, elapsedMs: number): 1 | 2 | 3 {
+  return (1 + (livesLost === 0 && hints === 0 ? 1 : 0) + (elapsedMs <= parMs ? 1 : 0)) as 1 | 2 | 3;
+}
 
 /** 1 star for solving, +1 for no mistakes, +1 for beating par. */
 export function starsFor(difficulty: Difficulty, mistakes: number, elapsedMs: number): 1 | 2 | 3 {
@@ -105,7 +104,7 @@ export function dailySeed(key: string): number {
 }
 
 /** Difficulty follows the week: gentle on Monday, Expert on Sunday. */
-const WEEKLY: Difficulty[] = ["expert", "easy", "medium", "medium", "hard", "medium", "hard"];
+const WEEKLY: Difficulty[] = ["expert", "beginner", "easy", "medium", "hard", "medium", "hard"];
 
 export function dailyDifficulty(key: string): Difficulty {
   const weekday = new Date(`${key}T00:00:00Z`).getUTCDay();
@@ -130,6 +129,9 @@ export function liveStreak(prev: { streak: number; lastDaily: string | null }, t
 
 export interface Progress {
   xp: number;
+  /** Lifetime leaderboard points (puzzle score × clear-chain multiplier). */
+  points: number;
+  bestChain: number;
   solves: number;
   flawless: number;
   streak: number;
@@ -143,6 +145,8 @@ export interface Progress {
 export function emptyProgress(): Progress {
   return {
     xp: 0,
+    points: 0,
+    bestChain: 0,
     solves: 0,
     flawless: 0,
     streak: 0,

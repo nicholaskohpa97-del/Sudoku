@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { HamburgerMenu } from "@/components/sudoku/HamburgerMenu";
+import { NotificationWatcher } from "@/components/sudoku/NotificationWatcher";
+import { SessionGuard } from "@/components/sudoku/SessionGuard";
 import { TabBar } from "@/components/sudoku/TabBar";
 import { Logo, MuteToggle } from "@/components/sudoku/ui";
 
@@ -25,11 +28,16 @@ export default function SudokuLayout({ children }: LayoutProps<"/sudoku">) {
               SUDOKU
             </span>
           </Link>
-          <MuteToggle />
+          <div className="flex items-center gap-2">
+            <MuteToggle />
+            <HamburgerMenu />
+          </div>
         </nav>
         {children}
       </div>
       <TabBar />
+      <SessionGuard />
+      <NotificationWatcher />
     </div>
   );
 }

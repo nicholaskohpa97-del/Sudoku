@@ -8,10 +8,12 @@ export const MAX_LEAGUE_MEMBERS = 50;
 
 /** Hard stop for a multiplayer match, by difficulty. */
 export const MATCH_TIME_LIMIT_MIN: Record<Difficulty, number> = {
+  beginner: 15,
   easy: 20,
   medium: 30,
   hard: 45,
   expert: 60,
+  master: 90,
 };
 
 export type RoomStatus = "lobby" | "playing" | "finished";
@@ -43,6 +45,8 @@ export interface RoomView {
   hostId: string;
   difficulty: Difficulty;
   maxPlayers: number;
+  /** Lives each player gets this match (the host chooses). */
+  lives: number;
   league: { code: string; name: string } | null;
   status: RoomStatus;
   round: number;
@@ -109,4 +113,77 @@ export interface LeagueView extends LeagueSummary {
 
 export interface ApiError {
   error: string;
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard
+
+export interface ScoreEntryView {
+  id: string;
+  /** 1-based position on the board it was fetched for. */
+  rank: number;
+  playerId: string;
+  playerName: string;
+  difficulty: Difficulty;
+  rating: number;
+  score: number;
+  elapsedMs: number;
+  parMs: number;
+  /** Lives chosen. */
+  lives: number;
+  livesLost: number;
+  hints: number;
+  maxCombo: number;
+  at: number;
+  source: "post" | "daily" | "challenge";
+  daily?: string;
+  baseId: string;
+  seed: number;
+  mine: boolean;
+  /** Only ever true for the owner: held off the public boards for review. */
+  flagged?: boolean;
+}
+
+export interface PlayerBoardRow {
+  rank: number;
+  playerId: string;
+  playerName: string;
+  /** Sum of each puzzle's best score. */
+  total: number;
+  puzzles: number;
+  best: number;
+  mine: boolean;
+}
+
+export type BoardKind = "all" | "week" | "daily" | "players";
+
+export interface ScoreDetail {
+  entry: ScoreEntryView;
+  /** Everyone's result on this same puzzle, best first. */
+  ladder: ScoreEntryView[];
+  /** What the viewer can do with it. */
+  challenge: { ok: true } | { ok: false; reason: string };
+}
+
+export interface NotificationView {
+  id: string;
+  at: number;
+  kind: "dethroned" | "dethroned-board" | "beaten";
+  title: string;
+  body: string;
+  href: string;
+  read: boolean;
+}
+
+export interface PostResult {
+  entry: ScoreEntryView;
+  /** Position on this puzzle's ladder and on its level's all-time board. */
+  puzzleRank: number | null;
+  boardRank: number | null;
+  replaced: boolean;
+}
+
+export interface ChallengeResult extends PostResult {
+  beat: boolean;
+  target: { score: number; playerName: string };
 }

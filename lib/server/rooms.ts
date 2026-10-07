@@ -1,4 +1,6 @@
-import { generatePuzzle, isDifficulty, MAX_MISTAKES } from "@/lib/sudoku/engine";
+import { isDifficulty, MAX_MISTAKES } from "@/lib/sudoku/engine";
+import { LIVES_OPTIONS } from "@/lib/sudoku/scoring";
+import { generatePuzzle } from "@/lib/sudoku/puzzles";
 import { monthKey, scoreMatch, DEFAULT_TOURNAMENT_TZ } from "@/lib/sudoku/tournament";
 import {
   DEFAULT_ROOM_PLAYERS,
@@ -139,6 +141,7 @@ export function roomView(db: Db, room: RoomRecord, viewerId: string | null, now 
     hostId: room.hostId,
     difficulty: room.difficulty,
     maxPlayers: room.maxPlayers,
+    lives: roomLives(room),
     league: league ? { code: league.code, name: league.name } : null,
     status: room.status,
     round: room.round,
@@ -161,13 +164,23 @@ export function roomView(db: Db, room: RoomRecord, viewerId: string | null, now 
   };
 }
 
+/** Lives for this room: the host's choice, else the classic three. */
+export function roomLives(room: RoomRecord): number {
+  return room.lives ?? MAX_MISTAKES;
+}
+
+function parseLives(value: unknown): number | null {
+  const n = Number(value);
+  return (LIVES_OPTIONS as readonly number[]).includes(n) ? n : null;
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 
 export function createRoom(
   db: Db,
   player: PlayerRecord,
-  input: { difficulty?: unknown; maxPlayers?: unknown; leagueCode?: unknown },
+  input: { difficulty?: unknown; maxPlayers?: unknown; leagueCode?: unknown; lives?: unknown },
   now = Date.now(),
 ): RoomRecord {
   const difficulty = isDifficulty(input.difficulty) ? input.difficulty : "medium";
@@ -192,6 +205,7 @@ export function createRoom(
     hostId: player.id,
     difficulty,
     maxPlayers,
+    lives: parseLives(input.lives) ?? MAX_MISTAKES,
     leagueCode,
     status: "lobby",
     round: 0,
@@ -251,12 +265,17 @@ export function leaveRoom(db: Db, room: RoomRecord, playerId: string, now = Date
 export function updateSettings(
   room: RoomRecord,
   playerId: string,
-  input: { difficulty?: unknown; maxPlayers?: unknown },
+  input: { difficulty?: unknown; maxPlayers?: unknown; lives?: unknown },
   now = Date.now(),
 ): void {
   requireHost(room, playerId);
   if (room.status === "playing") throw new HttpError(409, "Settings are locked during a match");
   if (isDifficulty(input.difficulty)) room.difficulty = input.difficulty;
+  if (input.lives !== undefined) {
+    const lives = parseLives(input.lives);
+    if (lives === null) throw new HttpError(400, `Lives must be one of ${LIVES_OPTIONS.join(", ")}`);
+    room.lives = lives;
+  }
   if (input.maxPlayers !== undefined) {
     const n = Math.round(Number(input.maxPlayers));
     if (!Number.isFinite(n) || n < Math.max(MIN_ROOM_PLAYERS, room.members.length) || n > MAX_ROOM_PLAYERS) {
@@ -314,7 +333,7 @@ export function applyMove(
   finalizeIfDone(db, room, now);
   if (room.status !== "playing" || !room.puzzle || !room.solution) throw new HttpError(409, "The match is over");
   if (now < (room.startedAt ?? 0)) throw new HttpError(409, "Wait for the countdown");
-  if (member.eliminated) throw new HttpError(409, `You're out — ${MAX_MISTAKES} mistakes`);
+  if (member.eliminated) throw new HttpError(409, `You're out of lives`);
   if (member.finishedMs !== null) throw new HttpError(409, "You already finished");
 
   const index = Number(input.index);
@@ -330,7 +349,7 @@ export function applyMove(
     if (member.board === room.solution) member.finishedMs = now - (room.startedAt ?? now);
   } else {
     member.mistakes += 1;
-    if (member.mistakes >= MAX_MISTAKES) member.eliminated = true;
+    if (member.mistakes >= roomLives(room)) member.eliminated = true;
   }
   room.updatedAt = now;
   finalizeIfDone(db, room, now);

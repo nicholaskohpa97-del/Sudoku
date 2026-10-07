@@ -2,10 +2,12 @@ import type { Difficulty } from "./engine";
 
 /** Points for completing a puzzle, by difficulty. */
 export const BASE_POINTS: Record<Difficulty, number> = {
+  beginner: 5,
   easy: 10,
   medium: 20,
   hard: 30,
   expert: 40,
+  master: 60,
 };
 
 /** Extra share of base points for podium finishes (1st, 2nd, 3rd). */

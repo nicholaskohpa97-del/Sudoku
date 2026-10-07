@@ -39,12 +39,15 @@ export function VictoryCard({
   subtitle,
   stars,
   award,
+  extra,
   children,
 }: {
   title: string;
   subtitle: string;
   stars?: number;
   award: Award | null;
+  /** Score and strategy blocks shown between the headline and the XP. */
+  extra?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const levelAfter = award ? levelInfo(award.xpAfter).level : 0;
@@ -56,6 +59,7 @@ export function VictoryCard({
         {title}
       </h2>
       <p className="text-sm font-semibold text-stone-300">{subtitle}</p>
+      {extra}
       {award ? (
         <div className="animate-rise space-y-1.5 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2 text-left [animation-delay:600ms]">
           <ul className="space-y-0.5 text-xs font-semibold text-stone-300">

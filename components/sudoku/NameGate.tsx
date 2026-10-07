@@ -1,7 +1,9 @@
 "use client";
 
+import { Dices, VenetianMask } from "lucide-react";
 import { useState } from "react";
-import { usePlayer } from "@/lib/sudoku/client";
+import { ApiRequestError, usePlayer } from "@/lib/sudoku/client";
+import { anonymousName, randomName } from "@/lib/sudoku/names";
 import { buttonStyles, Field, inputStyles } from "./ui";
 
 export function NameForm({
@@ -16,26 +18,34 @@ export function NameForm({
   const { register } = usePlayer();
   const [name, setName] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+
+  /** Saves `chosen`; on a clash shows the server's free alternatives. */
+  async function save(chosen: string) {
+    setBusy(true);
+    setError(null);
+    setSuggestions([]);
+    try {
+      await register(chosen);
+      onDone?.();
+    } catch (err) {
+      setError((err as Error).message);
+      if (err instanceof ApiRequestError && Array.isArray(err.data.suggestions)) setSuggestions(err.data.suggestions as string[]);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <form
       className="flex flex-col gap-3 sm:flex-row sm:items-end"
-      onSubmit={async (e) => {
+      onSubmit={(e) => {
         e.preventDefault();
-        setBusy(true);
-        setError(null);
-        try {
-          await register(name);
-          onDone?.();
-        } catch (err) {
-          setError((err as Error).message);
-        } finally {
-          setBusy(false);
-        }
+        void save(name);
       }}
     >
-      <div className="flex-1">
+      <div className="flex-1 space-y-2">
         <Field label="Player name">
           <input
             className={inputStyles}
@@ -47,7 +57,50 @@ export function NameForm({
             required
           />
         </Field>
-        {error ? <p className="mt-1.5 text-sm text-rose-300">{error}</p> : null}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setName(randomName(Math.random, true));
+              setError(null);
+              setSuggestions([]);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-semibold text-stone-200 transition hover:bg-white/10"
+          >
+            <Dices className="size-3.5" /> Random name
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              const anon = anonymousName();
+              setName(anon);
+              void save(anon);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-semibold text-stone-200 transition hover:bg-white/10 disabled:opacity-50"
+          >
+            <VenetianMask className="size-3.5" /> Stay anonymous
+          </button>
+        </div>
+        {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+        {suggestions.length ? (
+          <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-stone-300">
+            Free right now:
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  setName(s);
+                  void save(s);
+                }}
+                className="rounded-full bg-cyan-300/15 px-2.5 py-1 font-bold text-cyan-200 hover:bg-cyan-300/25"
+              >
+                {s}
+              </button>
+            ))}
+          </p>
+        ) : null}
       </div>
       <button type="submit" disabled={busy || !name.trim()} className={buttonStyles.primary}>
         {busy ? "Saving…" : submitLabel}
@@ -66,7 +119,7 @@ export function NameGate({ title, children }: { title: string; children: React.R
       <p className="text-4xl">🎮</p>
       <h1 className="font-display text-3xl font-bold">{title}</h1>
       <p className="text-sm font-semibold text-stone-300">
-        Pick the name your friends will see. No sign-up needed. It&apos;s remembered on this device.
+        Pick the name other players will see, make one up, or stay anonymous. Names are unique. No sign-up needed. It&apos;s remembered on this device.
       </p>
       <NameForm submitLabel="Continue" />
     </div>
