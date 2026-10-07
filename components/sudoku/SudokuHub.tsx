@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Check, ChevronRight, Flame, Play, Star, Trophy, Users } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, Flame, Mountain, Play, Star, Trophy, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -30,6 +30,7 @@ export function SudokuHub() {
     <div className="space-y-8">
       <PlayerCard name={player?.name ?? null} />
       <DailyHero />
+      <ModesSection />
       <SoloSection />
 
       {ready ? (
@@ -182,11 +183,38 @@ function DailyHeroInner() {
   );
 }
 
+function ModesSection() {
+  const modes = [
+    { href: "#levels", label: "Single player", hint: "Six levels, from Beginner to Master", icon: Play, tone: "text-cyan-300 border-cyan-300/30" },
+    { href: "#rooms", label: "Multiplayer", hint: "Race up to 20 friends", icon: Users, tone: "text-pink-300 border-pink-300/30" },
+    { href: "/sudoku/ascent", label: "Ascent", hint: "Climb a tier per clear on one pool of lives", icon: Mountain, tone: "text-violet-300 border-violet-300/30" },
+  ];
+  return (
+    <section aria-label="Game modes" className="grid gap-3 sm:grid-cols-3">
+      {modes.map(({ href, label, hint, icon: Icon, tone }) => (
+        <Link
+          key={label}
+          href={href}
+          className={`group flex items-center gap-3 rounded-2xl border bg-white/[0.03] p-3 transition hover:bg-white/[0.07] ${tone}`}
+        >
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/[0.06]">
+            <Icon className="size-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block font-display text-base font-semibold text-stone-100">{label}</span>
+            <span className="block text-xs font-semibold text-stone-400">{hint}</span>
+          </span>
+        </Link>
+      ))}
+    </section>
+  );
+}
+
 function SoloSection() {
   const isClient = useIsClient();
   const stats: Partial<Record<Difficulty, SoloStats>> = isClient ? loadStats() : {};
   return (
-    <section className="space-y-3">
+    <section id="levels" className="scroll-mt-6 space-y-3">
       <SectionTitle icon={<Star />} tone="gold">
         Pick your level
       </SectionTitle>

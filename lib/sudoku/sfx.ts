@@ -64,10 +64,20 @@ function note(freq: number, at: number, dur: number, type: OscillatorType = "sin
   osc.stop(t + dur + 0.02);
 }
 
+/** Haptics can be switched off in Settings (stored with the other preferences). */
+function hapticsOn(): boolean {
+  try {
+    const raw = localStorage.getItem("sudoku.prefs.v1");
+    return raw ? JSON.parse(raw).haptics !== false : true;
+  } catch {
+    return true;
+  }
+}
+
 function vibrate(pattern: number | number[]) {
   if (isMuted()) return;
   try {
-    navigator.vibrate?.(pattern);
+    if (hapticsOn()) navigator.vibrate?.(pattern);
   } catch {
     // Not supported.
   }

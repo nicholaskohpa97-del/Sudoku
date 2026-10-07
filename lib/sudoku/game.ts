@@ -16,7 +16,7 @@ import type { Step } from "./solver/types";
 
 export type InputMode = "pen" | "notes" | "trial";
 export type GameStatus = "playing" | "won" | "lost" | "revealed";
-export type GameKind = "classic" | "daily";
+export type GameKind = "classic" | "daily" | "ascent" | "replay";
 
 export interface ActiveHint {
   step: Step;
@@ -51,8 +51,13 @@ export interface GameState {
   baseId: string;
   /** Day key when this is the daily puzzle. */
   daily?: string;
-  /** Lives chosen up front; 0 = unlimited (practice, scores nothing). */
+  /**
+   * Lives available in this game; 0 = unlimited (practice, scores nothing).
+   * In an Ascent run this is what is left of the run's shared pool.
+   */
   lives: number;
+  /** Ascent: the pool the player chose for the whole run, which the lives factor is based on. */
+  pool?: { chosen: number };
   livesLost: number;
   /** Committed entries, including wrong ones (shown in red until replaced). */
   values: number[];
@@ -85,7 +90,7 @@ export function randomId(): string {
 
 export function newGameState(
   puzzle: Puzzle,
-  opts: { lives: number; kind?: GameKind; daily?: string; now?: number },
+  opts: { lives: number; kind?: GameKind; daily?: string; pool?: { chosen: number }; now?: number },
 ): GameState {
   return {
     v: 2,
@@ -100,6 +105,7 @@ export function newGameState(
     baseId: puzzle.baseId,
     daily: opts.daily,
     lives: opts.lives,
+    pool: opts.pool,
     livesLost: 0,
     values: Array.from(puzzle.puzzle, Number),
     notes: new Array(81).fill(0),
@@ -123,15 +129,17 @@ export function freshGame(
   lives: number,
   exclude?: ReadonlySet<string>,
   seed?: number,
+  extra: { kind?: GameKind; pool?: { chosen: number } } = {},
 ): GameState {
-  return newGameState(generatePuzzle(difficulty, seed, exclude), { lives });
+  return newGameState(generatePuzzle(difficulty, seed, exclude), { lives, ...extra });
 }
 
 export const emptiesOf = (g: GameState) => [...g.puzzle].filter((c) => c === "0").length;
 export const isCorrectAt = (g: GameState, cell: number) => String(g.values[cell]) === g.solution[cell];
 export const isGiven = (g: GameState, cell: number) => g.puzzle[cell] !== "0";
 export const filledCount = (g: GameState) => g.values.filter((v, i) => g.puzzle[i] === "0" && String(v) === g.solution[i]).length;
-export const isRanked = (g: GameState) => g.lives !== UNLIMITED_LIVES;
+/** Practice games and replays of puzzles you've already played score nothing. */
+export const isRanked = (g: GameState) => g.lives !== UNLIMITED_LIVES && g.kind !== "replay";
 export const livesLeft = (g: GameState) => (g.lives === UNLIMITED_LIVES ? Infinity : Math.max(0, g.lives - g.livesLost));
 
 /** Only the correct digits, "0" elsewhere: givens plus correct entries. */
@@ -355,7 +363,7 @@ export function scoreOf(g: GameState): ScoreBreakdown {
     parMs: g.parMs,
     empties: emptiesOf(g),
     elapsedMs: g.elapsedMs,
-    lives: g.lives,
+    lives: isRanked(g) ? (g.pool?.chosen ?? g.lives) : UNLIMITED_LIVES,
     livesLost: g.livesLost,
     hintsUsed: g.hintsUsed,
     comboWeight: g.comboWeight,

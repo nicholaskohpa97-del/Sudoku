@@ -21,6 +21,8 @@ export interface HistoryRecord {
   puzzle: string;
   baseId: string;
   daily?: string;
+  /** Ascent: which level of the run this was (1 = Beginner). */
+  level?: number;
   result: GameResult;
   elapsedMs: number;
   parMs: number;

@@ -1,6 +1,7 @@
 "use client";
 
 import { boxOf, colOf, rowOf } from "@/lib/sudoku/engine";
+import { usePrefs } from "@/lib/sudoku/prefs";
 
 /** Extra highlighting for hints and the walkthrough. */
 export interface CellMark {
@@ -56,6 +57,7 @@ const LABEL_TONE = {
 };
 
 export function Board({ cells, selected, onSelect, flash, effects, disabled, overlay }: BoardProps) {
+  const prefs = usePrefs();
   const selectedValue = selected !== null ? cells[selected]?.value : 0;
   const sweep = effects?.sweep ?? null;
   const pop = effects?.pop ?? null;
@@ -77,10 +79,11 @@ export function Board({ cells, selected, onSelect, flash, effects, disabled, ove
           const c = colOf(i);
           const isSelected = i === selected;
           const related =
+            prefs.highlightRelated &&
             selected !== null &&
             !isSelected &&
             (rowOf(selected) === r || colOf(selected) === c || boxOf(selected) === boxOf(i));
-          const sameValue = !isSelected && selectedValue > 0 && cell.value === selectedValue && !cell.wrong;
+          const sameValue = prefs.highlightSame && !isSelected && selectedValue > 0 && cell.value === selectedValue && !cell.wrong;
 
           let bg = (Math.floor(r / 3) + Math.floor(c / 3)) % 2 === 0 ? "bg-white/[0.015]" : "bg-violet-400/[0.045]";
           if (isSelected && cell.wrong) bg = "bg-rose-500/30 ring-2 ring-inset ring-cyan-300";

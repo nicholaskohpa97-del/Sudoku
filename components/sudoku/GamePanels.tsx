@@ -1,8 +1,9 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Flame, Lightbulb, Link2, Play, ShieldAlert } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Flame, Lightbulb, Link2, Play, ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import { DIFFICULTY_CONFIG, type Difficulty } from "@/lib/sudoku/engine";
+import type { AscentRun } from "@/lib/sudoku/ascent";
+import { DIFFICULTIES, DIFFICULTY_CONFIG, type Difficulty } from "@/lib/sudoku/engine";
 import type { HintView } from "@/lib/sudoku/game";
 import { LIVES_OPTIONS, livesChosenFactor, MAX_HINTS, UNLIMITED_LIVES, type ScoreBreakdown } from "@/lib/sudoku/scoring";
 import { TECHNIQUES } from "@/lib/sudoku/solver";
@@ -19,28 +20,46 @@ export function PreGame({
   lives,
   onLives,
   onStart,
+  kicker,
+  heading,
+  blurb,
+  needs,
+  note,
+  noUnlimited,
+  startLabel = "Start",
+  question = "How many lives?",
 }: {
   difficulty: Difficulty;
   daily?: boolean;
   lives: number;
   onLives: (n: number) => void;
   onStart: () => void;
+  /** Small label above the heading (default: "New game" or "Daily puzzle"). */
+  kicker?: string;
+  heading?: string;
+  blurb?: string;
+  needs?: string;
+  note?: string;
+  /** Hide the unlimited/practice option (Ascent needs a real pool). */
+  noUnlimited?: boolean;
+  startLabel?: string;
+  question?: string;
 }) {
   const style = DIFFICULTY_STYLE[difficulty];
   const config = DIFFICULTY_CONFIG[difficulty];
   return (
     <div className="mx-auto w-full max-w-[min(92vw,30rem)] space-y-5 rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.02] p-5">
       <div>
-        <p className="font-display text-xs font-semibold tracking-widest text-stone-400 uppercase">{daily ? "Daily puzzle" : "New game"}</p>
-        <h2 className={`font-display text-3xl font-bold ${style.text}`}>{config.label}</h2>
-        <p className="text-sm font-semibold text-stone-300">{config.blurb}</p>
-        <p className="mt-1 text-xs font-semibold text-stone-500">Needs: {config.needs}</p>
+        <p className="font-display text-xs font-semibold tracking-widest text-stone-400 uppercase">{kicker ?? (daily ? "Daily puzzle" : "New game")}</p>
+        <h2 className={`font-display text-3xl font-bold ${style.text}`}>{heading ?? config.label}</h2>
+        <p className="text-sm font-semibold text-stone-300">{blurb ?? config.blurb}</p>
+        <p className="mt-1 text-xs font-semibold text-stone-500">{needs ?? `Needs: ${config.needs}`}</p>
       </div>
 
       <div className="space-y-2">
-        <p className="font-display text-sm font-semibold text-stone-200">How many lives?</p>
+        <p className="font-display text-sm font-semibold text-stone-200">{question}</p>
         <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Lives">
-          {[...LIVES_OPTIONS, UNLIMITED_LIVES].map((n) => {
+          {(noUnlimited ? [...LIVES_OPTIONS] : [...LIVES_OPTIONS, UNLIMITED_LIVES]).map((n) => {
             const on = n === lives;
             return (
               <button
@@ -63,12 +82,12 @@ export function PreGame({
           })}
         </div>
         <p className="text-xs font-semibold text-stone-400">
-          Every wrong digit costs a life. Fewer lives, more points. Practice scores nothing.
+          {note ?? "Every wrong digit costs a life. Fewer lives, more points. Practice scores nothing."}
         </p>
       </div>
 
       <button type="button" onClick={onStart} className={`${buttonStyles.primary} w-full`}>
-        <Play className="size-5" /> Start
+        <Play className="size-5" /> {startLabel}
       </button>
     </div>
   );
@@ -236,6 +255,69 @@ export function GiveUpConfirm({ onConfirm, onCancel, chain }: { onConfirm: () =>
           Keep playing
         </button>
       </div>
+    </div>
+  );
+}
+
+/** The six rungs of an Ascent run: cleared, current and still to come. */
+export function AscentLadder({ run, current }: { run: AscentRun | null; current: Difficulty }) {
+  const currentIndex = DIFFICULTIES.indexOf(current);
+  return (
+    <div className="flex max-w-full gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.03] p-1 text-xs [scrollbar-width:none]" aria-label="Ascent progress">
+      {DIFFICULTIES.map((d, i) => {
+        const done = !!run && i <= run.topCleared;
+        const here = i === currentIndex;
+        return (
+          <span
+            key={d}
+            aria-current={here ? "step" : undefined}
+            className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-display font-semibold ${
+              here ? DIFFICULTY_STYLE[d].chip : done ? "text-lime-300" : "text-stone-500"
+            }`}
+          >
+            {done && !here ? <Check className="size-3" /> : null}
+            {DIFFICULTY_CONFIG[d].label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Shown when the shared pool of lives runs out. */
+export function RunOver({
+  run,
+  best,
+  onNew,
+}: {
+  run: AscentRun;
+  best: { points: number; cleared: number; topCleared: number } | null;
+  onNew: () => void;
+}) {
+  const top = run.topCleared >= 0 ? DIFFICULTY_CONFIG[DIFFICULTIES[run.topCleared]].label : "none yet";
+  const record = !!best && run.points >= best.points && run.points > 0;
+  return (
+    <div className="w-full max-w-xs space-y-3 px-4 text-center">
+      <p className="text-5xl">🏔️</p>
+      <h2 className="font-display text-3xl font-bold text-violet-200">Run over</h2>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-xl bg-white/[0.06] p-2">
+          <p className="font-num text-xl font-bold text-cyan-200">{run.cleared}</p>
+          <p className="text-[0.65rem] font-semibold text-stone-400">cleared</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.06] p-2">
+          <p className="font-display text-sm leading-7 font-bold text-pink-200">{top}</p>
+          <p className="text-[0.65rem] font-semibold text-stone-400">highest tier</p>
+        </div>
+        <div className="rounded-xl bg-white/[0.06] p-2">
+          <p className="font-num text-xl font-bold text-yellow-200">{fmt(run.points)}</p>
+          <p className="text-[0.65rem] font-semibold text-stone-400">points</p>
+        </div>
+      </div>
+      {record ? <p className="font-display text-sm font-bold text-yellow-200">🏆 New personal best!</p> : best ? <p className="text-xs font-semibold text-stone-400">Best run: {fmt(best.points)} points</p> : null}
+      <button type="button" onClick={onNew} className={buttonStyles.primary}>
+        <Play className="size-4" /> New run
+      </button>
     </div>
   );
 }

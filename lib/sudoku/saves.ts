@@ -5,7 +5,8 @@
 import type { GameState } from "./game";
 import type { Difficulty } from "./engine";
 
-const key = (kind: "classic" | "daily", difficulty?: Difficulty) => (kind === "daily" ? "sudoku.save.daily" : `sudoku.save.${difficulty}`);
+export type SaveKind = "classic" | "daily" | "ascent" | "replay";
+const key = (kind: SaveKind, difficulty?: Difficulty) => (kind === "classic" ? `sudoku.save.${difficulty}` : `sudoku.save.${kind}`);
 const LAST_KEY = "sudoku.save.last";
 export const DAILY_DONE_KEY = "sudoku.dailyDone.v1";
 
@@ -27,11 +28,11 @@ export function saveGame(g: GameState): void {
   }
 }
 
-export function loadGame(kind: "classic" | "daily", difficulty?: Difficulty): GameState | null {
+export function loadGame(kind: SaveKind, difficulty?: Difficulty): GameState | null {
   return read(key(kind, difficulty));
 }
 
-export function clearGame(kind: "classic" | "daily", difficulty?: Difficulty): void {
+export function clearGame(kind: SaveKind, difficulty?: Difficulty): void {
   try {
     localStorage.removeItem(key(kind, difficulty));
   } catch {
