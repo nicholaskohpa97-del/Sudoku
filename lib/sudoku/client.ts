@@ -28,6 +28,8 @@ export class ApiRequestError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The rest of the error body (e.g. name suggestions). */
+    public data: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -47,7 +49,7 @@ export async function api<T>(path: string, init: RequestInit & { body?: string }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && session) saveSession(null);
-    throw new ApiRequestError(res.status, (data as { error?: string }).error ?? `Request failed (${res.status})`);
+    throw new ApiRequestError(res.status, (data as { error?: string }).error ?? `Request failed (${res.status})`, data as Record<string, unknown>);
   }
   return data as T;
 }
@@ -94,7 +96,22 @@ export function usePlayer() {
     }
   }, []);
 
-  return { player, ready: raw !== null, register };
+  /** Signs this device in as an existing player using a recovery code. */
+  const restore = useCallback(async (code: string) => {
+    const [id, token] = code.trim().split(".");
+    if (!id || !token) throw new ApiRequestError(400, "That doesn't look like a recovery code");
+    const res = await fetch("/api/sudoku/players", { cache: "no-store", headers: { Authorization: `Bearer ${id}:${token}` } });
+    if (!res.ok) throw new ApiRequestError(res.status, "That recovery code isn't valid");
+    const { name } = (await res.json()) as { name: string };
+    saveSession({ id, token, name });
+  }, []);
+
+  return { player, ready: raw !== null, register, restore };
+}
+
+/** The code that signs another device in as this player. Keep it private. */
+export function recoveryCode(player: PlayerSession): string {
+  return `${player.id}.${player.token}`;
 }
 
 export function formatDuration(ms: number): string {

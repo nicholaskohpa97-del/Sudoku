@@ -6,11 +6,13 @@ import { useMemo, useState } from "react";
 import { formatDuration } from "@/lib/sudoku/client";
 import { DIFFICULTIES, DIFFICULTY_CONFIG, type Difficulty } from "@/lib/sudoku/engine";
 import { useHistory, type GameResult, type HistoryRecord } from "@/lib/sudoku/history";
+import { loadLog } from "@/lib/sudoku/logs";
 import { TECHNIQUES } from "@/lib/sudoku/solver";
+import { PostScorePanel } from "./PostScorePanel";
 import { DIFFICULTY_STYLE } from "./theme";
 import { BackLink, Field, inputStyles, Panel, SectionTitle } from "./ui";
 
-const KIND_LABEL: Record<HistoryRecord["kind"], string> = { classic: "Single player", daily: "Daily", ascent: "Ascent", replay: "Replay" };
+const KIND_LABEL: Record<HistoryRecord["kind"], string> = { classic: "Single player", daily: "Daily", ascent: "Ascent", replay: "Replay", challenge: "Challenge" };
 
 const RESULT_STYLE: Record<GameResult, string> = {
   won: "bg-lime-300/15 text-lime-200",
@@ -173,6 +175,7 @@ function HistoryRow({ r, open, onToggle }: { r: HistoryRecord; open: boolean; on
           ) : r.result === "won" ? (
             <p className="text-stone-500">No strategy report was saved for this game.</p>
           ) : null}
+          {r.result === "won" && (r.kind === "classic" || r.kind === "daily") && r.lives > 0 ? <PostFromHistory r={r} /> : null}
           {r.result === "revealed" ? (
             <p className="flex items-center gap-1.5 text-violet-200">
               <Lock className="size-3.5" /> Locked: you revealed this solution, so it can&apos;t be replayed.
@@ -188,5 +191,20 @@ function HistoryRow({ r, open, onToggle }: { r: HistoryRecord; open: boolean; on
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** Posting a past win needs its move log, which is only kept for the latest few games. */
+function PostFromHistory({ r }: { r: HistoryRecord }) {
+  const log = loadLog(r.id);
+  if (!log && !r.posted) {
+    return <p className="text-stone-500">This game is too old to post: move logs are kept for your latest wins only.</p>;
+  }
+  return (
+    <PostScorePanel
+      recordId={r.id}
+      posted={r.posted}
+      submission={{ baseId: r.baseId, seed: r.seed, lives: r.lives, log: log ?? [], daily: r.daily }}
+    />
   );
 }

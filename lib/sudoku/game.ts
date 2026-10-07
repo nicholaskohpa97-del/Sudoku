@@ -16,7 +16,7 @@ import type { Step } from "./solver/types";
 
 export type InputMode = "pen" | "notes" | "trial";
 export type GameStatus = "playing" | "won" | "lost" | "revealed";
-export type GameKind = "classic" | "daily" | "ascent" | "replay";
+export type GameKind = "classic" | "daily" | "ascent" | "replay" | "challenge";
 
 export interface ActiveHint {
   step: Step;
@@ -25,7 +25,7 @@ export interface ActiveHint {
   at: number;
 }
 
-export type MoveKind = "place" | "wrong" | "note" | "erase" | "trial" | "hint";
+export type MoveKind = "place" | "wrong" | "note" | "erase" | "trial" | "hint" | "away";
 
 /** One logged action; the strategy report and (later) score verification replay these. */
 export interface MoveEvent {
@@ -273,7 +273,8 @@ export function addTime(g: GameState, ms: number): GameState {
 
 /** Resets the in-puzzle combo (leaving the app, a hint). */
 export function breakCombo(g: GameState): GameState {
-  return g.combo === 0 ? g : { ...g, combo: 0 };
+  // Logged so a replay of the game (score verification) breaks the combo at the same moment.
+  return g.combo === 0 || g.status !== "playing" ? g : { ...g, combo: 0, log: log(g, "away", 0, 0) };
 }
 
 /** Gives up: the puzzle is revealed, scores nothing and can't be replayed. */

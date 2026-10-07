@@ -1,4 +1,5 @@
 import { cleanName, handle, hashToken, json, newId, newToken, readBody, requirePlayer } from "@/lib/server/http";
+import { assertNameFree } from "@/lib/server/names";
 import { mutate } from "@/lib/server/store";
 import type { PlayerSession } from "@/lib/sudoku/types";
 
@@ -7,6 +8,7 @@ export async function POST(request: Request) {
   return handle(async () => {
     const name = cleanName((await readBody(request)).name);
     const session = await mutate((db): PlayerSession => {
+      assertNameFree(db, name);
       const id = newId();
       const token = newToken();
       db.players[id] = { id, name, tokenHash: hashToken(token), createdAt: Date.now() };
@@ -22,6 +24,7 @@ export async function PATCH(request: Request) {
     const player = await requirePlayer(request);
     const name = cleanName((await readBody(request)).name);
     await mutate((db) => {
+      assertNameFree(db, name, player.id);
       db.players[player.id].name = name;
     });
     return json({ id: player.id, name });

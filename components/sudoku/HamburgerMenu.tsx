@@ -1,11 +1,12 @@
 "use client";
 
-import { Gamepad2, History, Link2, Menu, Mountain, Settings, User, Users, X } from "lucide-react";
+import { Bell, Gamepad2, History, Link2, Menu, Mountain, Settings, Trophy, User, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { usePlayer } from "@/lib/sudoku/client";
 import { useHistory } from "@/lib/sudoku/history";
+import { useInbox } from "@/lib/sudoku/inbox";
 import { useProgress } from "@/lib/sudoku/profile";
 import { levelInfo } from "@/lib/sudoku/progress";
 import { useChain } from "@/lib/sudoku/session";
@@ -25,6 +26,7 @@ export function HamburgerMenu() {
   const progress = useProgress();
   const history = useHistory();
   const chain = useChain();
+  const inbox = useInbox();
   const level = levelInfo(progress?.xp ?? 0);
 
   useEffect(() => {
@@ -41,6 +43,8 @@ export function HamburgerMenu() {
     { href: "/sudoku/ascent", label: "Ascent", hint: "Increasing difficulty: one climb, one pool of lives", icon: Mountain },
   ];
   const you: Item[] = [
+    { href: "/sudoku/leaderboard", label: "Leaderboard", hint: "Post scores, challenge others, take the crown", icon: Trophy },
+    { href: "/sudoku/inbox", label: "Inbox", hint: "Who took your crown or beat your score", icon: Bell, badge: inbox.unread || undefined },
     { href: "/sudoku/history", label: "Game history", hint: "Every game you've played", icon: History, badge: history?.records.length || undefined },
     { href: "/sudoku/profile", label: "Profile", hint: "Level, achievements, techniques", icon: User },
     { href: "/sudoku/settings", label: "Settings", hint: "Lives, sound, display", icon: Settings },
@@ -73,9 +77,14 @@ export function HamburgerMenu() {
         aria-label="Open menu"
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="grid size-9 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-stone-300 transition hover:border-cyan-300/40 hover:text-cyan-200"
+        className="relative grid size-9 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-stone-300 transition hover:border-cyan-300/40 hover:text-cyan-200"
       >
         <Menu className="size-4" />
+        {inbox.unread > 0 ? (
+          <span className="absolute -top-1 -right-1 grid min-w-4 place-items-center rounded-full bg-pink-400 px-1 font-num text-[0.6rem] font-bold text-night ring-2 ring-night">
+            {inbox.unread > 9 ? "9+" : inbox.unread}
+          </span>
+        ) : null}
       </button>
 
       {open ? (

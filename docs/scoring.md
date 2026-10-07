@@ -78,3 +78,20 @@ After a win, the move log is replayed against the solver. Each placement is attr
 justifies it, and pencil-mark removals that no peer placement explains count as direct evidence of a technique.
 Conclusions carry a confidence label (clearly used / probably / maybe); wrong entries and unexplained placements count as
 guesses. It is inference, and the report says so.
+
+## Leaderboard, challenges and the throne
+
+Everything on the boards is **recomputed by the server** (`lib/sudoku/verify.ts`, `lib/server/scores.ts`): you post the move log, never a score.
+
+- **What's checked.** The puzzle is rebuilt from `(baseId, seed)`, so custom grids and borrowed ids don't work. The log is replayed through the real game rules (every move must match, the game must end in a win, hints can't exceed three, away moments break the combo exactly as they did for you) and the score is computed from that.
+- **Pace.** Under 0.25 s per tap is refused as superhuman; under 0.6 s is saved but kept off the public boards ("flagged"). Posting is rate-limited.
+- **One entry per player per puzzle.** A better run replaces the old one in place; a worse one is refused.
+- **What's posted.** The puzzle score, without the clear-chain multiplier, so everyone is compared like for like. Practice games, replays and Ascent runs can't be posted.
+- **Boards.** Top scores (by level), this week, the daily puzzle, and players by total.
+- **Challenge.** Tap a score and accept: you play the *same* puzzle with the lives you choose. You get **one scored attempt**: accepting locks it in, and leaving or running out of lives uses it up. Your result lands on the puzzle's ladder either way.
+- **The throne.** Whoever tops a puzzle's ladder holds its crown; whoever tops a level's all-time board holds that one. When you take a crown, the previous holder is told in their inbox ("took your throne", "lost #1 on the Hard board"). A challenged player whose score is beaten without losing the crown gets a "beat your score" note. Nobody is told about their own results, and flagged scores never trigger alerts.
+- **Inbox.** Polled every 45 seconds while the app is open, announced as a banner on opening the app, with a badge on the menu. No push service or email is needed.
+
+## Names
+
+Names are unique, ignoring case, accents and punctuation (`Sneaky Quokka` = `sneaky-quokka!`). A clash returns free alternatives. You can stay anonymous (`Anonymous Otter 417`) or roll a random troll name (`Grumpy Capybara 52`). Your **recovery code** (Profile) moves your name, scores and inbox to a new device.

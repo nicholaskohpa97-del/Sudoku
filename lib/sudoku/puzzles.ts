@@ -3,7 +3,7 @@
 // permutations within bands and stacks, band/stack swaps, transpose). The same
 // (difficulty, seed) always gives the same grid.
 import { BANK } from "./bank";
-import { createRng, randomSeed, shuffle, solve, type Difficulty, type Puzzle } from "./engine";
+import { createRng, isDifficulty, randomSeed, shuffle, solve, type Difficulty, type Puzzle } from "./engine";
 
 interface Transform {
   digits: number[]; // old digit -> new digit (index 0 unused)
@@ -40,6 +40,30 @@ export function applyTransform(grid: string, t: Transform): string {
   return out.join("");
 }
 
+/** Which bank entry a `baseId` such as "hard:42" names. */
+function parseBaseId(baseId: string): { difficulty: Difficulty; index: number } | null {
+  const [tier, idx] = baseId.split(":");
+  const index = Number(idx);
+  if (!isDifficulty(tier) || !Number.isInteger(index) || index < 0 || index >= BANK[tier].length) return null;
+  return { difficulty: tier, index };
+}
+
+/**
+ * The puzzle that `(baseId, seed)` always produces: bank entry `baseId`
+ * disguised by the transform seeded from `seed`. This is the puzzle's identity:
+ * the same pair gives the same grid, rating and par everywhere, which lets the
+ * server rebuild a posted puzzle instead of trusting the client's copy.
+ */
+export function puzzleFromBase(baseId: string, seed: number): Puzzle | null {
+  const parsed = parseBaseId(baseId);
+  if (!parsed) return null;
+  const [base, rating, parMs] = BANK[parsed.difficulty][parsed.index];
+  const puzzle = applyTransform(base, randomTransform(createRng((seed ^ 0x9e3779b9) >>> 0)));
+  const solution = solve(puzzle);
+  if (!solution) return null;
+  return { puzzle, solution, difficulty: parsed.difficulty, seed, rating, parMs, baseId };
+}
+
 /**
  * A puzzle of the requested tier. Deterministic for a given seed. Bank
  * puzzles listed in `exclude` (by `baseId`) are skipped, so a player is
@@ -57,9 +81,7 @@ export function generatePuzzle(
   for (let tries = 0; exclude?.has(`${difficulty}:${index}`) && tries < bank.length; tries++) {
     index = (index + 1 + Math.floor(rng() * bank.length)) % bank.length;
   }
-  const [base, rating, parMs] = bank[index];
-  const puzzle = applyTransform(base, randomTransform(rng));
-  const solution = solve(puzzle);
-  if (!solution) throw new Error("Bank puzzle has no solution");
-  return { puzzle, solution, difficulty, seed, rating, parMs, baseId: `${difficulty}:${index}` };
+  const puzzle = puzzleFromBase(`${difficulty}:${index}`, seed);
+  if (!puzzle) throw new Error("Bank puzzle has no solution");
+  return puzzle;
 }

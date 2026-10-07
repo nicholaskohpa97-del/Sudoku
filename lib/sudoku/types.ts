@@ -114,3 +114,76 @@ export interface LeagueView extends LeagueSummary {
 export interface ApiError {
   error: string;
 }
+
+// ---------------------------------------------------------------------------
+// Leaderboard
+
+export interface ScoreEntryView {
+  id: string;
+  /** 1-based position on the board it was fetched for. */
+  rank: number;
+  playerId: string;
+  playerName: string;
+  difficulty: Difficulty;
+  rating: number;
+  score: number;
+  elapsedMs: number;
+  parMs: number;
+  /** Lives chosen. */
+  lives: number;
+  livesLost: number;
+  hints: number;
+  maxCombo: number;
+  at: number;
+  source: "post" | "daily" | "challenge";
+  daily?: string;
+  baseId: string;
+  seed: number;
+  mine: boolean;
+  /** Only ever true for the owner: held off the public boards for review. */
+  flagged?: boolean;
+}
+
+export interface PlayerBoardRow {
+  rank: number;
+  playerId: string;
+  playerName: string;
+  /** Sum of each puzzle's best score. */
+  total: number;
+  puzzles: number;
+  best: number;
+  mine: boolean;
+}
+
+export type BoardKind = "all" | "week" | "daily" | "players";
+
+export interface ScoreDetail {
+  entry: ScoreEntryView;
+  /** Everyone's result on this same puzzle, best first. */
+  ladder: ScoreEntryView[];
+  /** What the viewer can do with it. */
+  challenge: { ok: true } | { ok: false; reason: string };
+}
+
+export interface NotificationView {
+  id: string;
+  at: number;
+  kind: "dethroned" | "dethroned-board" | "beaten";
+  title: string;
+  body: string;
+  href: string;
+  read: boolean;
+}
+
+export interface PostResult {
+  entry: ScoreEntryView;
+  /** Position on this puzzle's ladder and on its level's all-time board. */
+  puzzleRank: number | null;
+  boardRank: number | null;
+  replaced: boolean;
+}
+
+export interface ChallengeResult extends PostResult {
+  beat: boolean;
+  target: { score: number; playerName: string };
+}

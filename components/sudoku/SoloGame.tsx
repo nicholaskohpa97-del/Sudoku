@@ -1,13 +1,13 @@
 "use client";
 
-import { CalendarDays, Flag, Link2, Mountain, RotateCcw, Sparkles, Timer } from "lucide-react";
+import { CalendarDays, Flag, Link2, Mountain, RotateCcw, Sparkles, Swords, Timer } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { afterPuzzle, newRun, tierOfRun, type AscentRun } from "@/lib/sudoku/ascent";
 import { loadAscent, saveRun, useAscent } from "@/lib/sudoku/ascent-store";
 import { formatDuration } from "@/lib/sudoku/client";
-import { DIFFICULTIES, DIFFICULTY_CONFIG, UNITS, type Difficulty } from "@/lib/sudoku/engine";
+import { DIFFICULTIES, DIFFICULTY_CONFIG, isDifficulty, UNITS, type Difficulty } from "@/lib/sudoku/engine";
 import {
   addTime,
   breakCombo,
@@ -36,10 +36,12 @@ import {
   type InputMode,
 } from "@/lib/sudoku/game";
 import { isRevealedPuzzle, loadHistory, revealedBases, saveRecord, updateRecord, type HistoryRecord } from "@/lib/sudoku/history";
+import { submitChallenge, type GameSubmission } from "@/lib/sudoku/leaderboard";
+import { keepLog } from "@/lib/sudoku/logs";
 import { loadPrefs, savePrefs, usePrefs } from "@/lib/sudoku/prefs";
 import { awardSolve, type Award } from "@/lib/sudoku/profile";
 import { dailyDifficulty, dailySeed, dayKey, starsForPar } from "@/lib/sudoku/progress";
-import { generatePuzzle } from "@/lib/sudoku/puzzles";
+import { generatePuzzle, puzzleFromBase } from "@/lib/sudoku/puzzles";
 import { puzzleFromRecord } from "@/lib/sudoku/replay";
 import { clearGame, loadGame, markDailyDone, saveGame } from "@/lib/sudoku/saves";
 import { AWAY_EVENT, breakChain, CHAIN_BREAK_EVENT, recordClear, useChain, type ClearResult } from "@/lib/sudoku/session";
@@ -48,10 +50,12 @@ import { recordSkill } from "@/lib/sudoku/skill";
 import { recordSoloResult } from "@/lib/sudoku/stats";
 import { analyseGame, type StrategyReport } from "@/lib/sudoku/strategy";
 import type { ScoreBreakdown } from "@/lib/sudoku/scoring";
+import type { ChallengeResult } from "@/lib/sudoku/types";
 import { Board, type CellState } from "./Board";
 import { LivesMeter, NumberPad, useBoardKeys } from "./Controls";
-import { AscentLadder, GiveUpConfirm, HintPanel, PreGame, RunOver, ScoreView, StrategyView } from "./GamePanels";
+import { AscentLadder, ChallengeOutcomeView, GiveUpConfirm, HintPanel, PreGame, RunOver, ScoreView, StrategyView } from "./GamePanels";
 import { ComboMeter, useJuice } from "./juice";
+import { PostScorePanel } from "./PostScorePanel";
 import { DIFFICULTY_STYLE } from "./theme";
 import { VictoryCard } from "./Victory";
 import { Walkthrough } from "./Walkthrough";
@@ -63,7 +67,9 @@ export type SoloMode =
   /** Increasing difficulty: one shared pool of lives, one tier up per clear. */
   | { kind: "ascent" }
   /** The same puzzle as a past game, unscored. */
-  | { kind: "replay"; record: HistoryRecord };
+  | { kind: "replay"; record: HistoryRecord }
+  /** One scored attempt at a puzzle someone posted to the leaderboard. */
+  | { kind: "challenge"; scoreId: string; baseId: string; seed: number; target: { score: number; playerName: string } };
 
 export { loadDailyDone, loadSavedGame } from "@/lib/sudoku/saves";
 
@@ -83,8 +89,14 @@ function resumable(mode: SoloMode): GameState | null {
   if (!g || (g.status !== "playing" && g.status !== "revealed")) return null;
   if (mode.kind === "daily" && g.daily !== dayKey()) return null;
   if (mode.kind === "replay" && g.puzzle !== mode.record.puzzle) return null;
+  if (mode.kind === "challenge" && (g.baseId !== mode.baseId || g.seed !== mode.seed)) return null;
   if (mode.kind === "ascent" && loadAscent().run?.status !== "active") return null;
   return g;
+}
+
+function challengeTier(baseId: string): Difficulty {
+  const tier = baseId.split(":")[0];
+  return isDifficulty(tier) ? tier : "medium";
 }
 
 /** The first game of a fresh Ascent run, or the next level of the current one. */
@@ -103,7 +115,8 @@ export function SoloGame({ mode }: { mode: SoloMode }) {
   // Puzzles and saves live in the browser, so render on the client only.
   const isClient = useIsClient();
   if (!isClient) return <div className="mx-auto aspect-square w-full max-w-[min(92vw,30rem)]" />;
-  const key = mode.kind === "classic" ? mode.difficulty : mode.kind === "replay" ? `replay-${mode.record.id}` : mode.kind;
+  const key =
+    mode.kind === "classic" ? mode.difficulty : mode.kind === "replay" ? `replay-${mode.record.id}` : mode.kind === "challenge" ? `challenge-${mode.scoreId}` : mode.kind;
   return <SoloGameInner key={key} mode={mode} />;
 }
 
@@ -122,6 +135,9 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
   const [report, setReport] = useState<StrategyReport | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [confirmGiveUp, setConfirmGiveUp] = useState(false);
+  const [challengeOutcome, setChallengeOutcome] = useState<
+    { kind: "sending" } | { kind: "done"; result: ChallengeResult } | { kind: "error"; message: string } | null
+  >(null);
   const { toast, show } = useToast();
   const juice = useJuice((text) => show(text, "success"));
   const chain = useChain();
@@ -138,9 +154,11 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
         ? mode.difficulty
         : mode.kind === "replay"
           ? mode.record.difficulty
-          : run
-            ? tierOfRun(run)
-            : "beginner");
+          : mode.kind === "challenge"
+            ? challengeTier(mode.baseId)
+            : run
+              ? tierOfRun(run)
+              : "beginner");
   const style = DIFFICULTY_STYLE[difficulty];
 
   // A daily puzzle that was given up on is locked for the rest of the day.
@@ -214,6 +232,15 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
 
   // ---- outcomes -----------------------------------------------------------
 
+  /** Submits a finished challenge attempt; the server replays it and compares scores. */
+  const sendChallenge = useCallback((g: GameState, scoreId: string) => {
+    setChallengeOutcome({ kind: "sending" });
+    const submission: GameSubmission = { baseId: g.baseId, seed: g.seed, lives: g.lives, log: g.log };
+    submitChallenge(scoreId, submission)
+      .then((result) => setChallengeOutcome({ kind: "done", result }))
+      .catch((err: Error) => setChallengeOutcome({ kind: "error", message: err.message }));
+  }, []);
+
   const finish = useCallback(
     (g: GameState, lastCell: number) => {
       const record = (extra: Partial<HistoryRecord>): HistoryRecord => ({
@@ -263,6 +290,8 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
         }
         setResult({ score, chain: cleared, award });
         saveRecord(record({ result: "won", score: score.total, chain: cleared }));
+        if (g.kind === "classic" || g.kind === "daily") keepLog(g.id, g.log);
+        if (g.kind === "challenge" && mode.kind === "challenge") sendChallenge(g, mode.scoreId);
         setSelected(null);
         setTimeout(() => juice.celebrate(lastCell), 350);
         setTimeout(() => setShowResult(true), 1900);
@@ -292,7 +321,7 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
         setTimeout(() => setShowResult(true), 700);
       }
     },
-    [juice],
+    [juice, mode, sendChallenge],
   );
 
   const handleOutcome = useCallback(
@@ -411,6 +440,7 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
     setReport(null);
     setShowResult(false);
     setConfirmGiveUp(false);
+    setChallengeOutcome(null);
     setInput("pen");
     restored.current = true;
     juice.reset();
@@ -427,6 +457,9 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
       } else if (mode.kind === "replay") {
         const puzzle = puzzleFromRecord(mode.record);
         if (puzzle) setGame(newGameState(puzzle, { lives: chosen, kind: "replay" }));
+      } else if (mode.kind === "challenge") {
+        const puzzle = puzzleFromBase(mode.baseId, mode.seed);
+        if (puzzle) setGame(newGameState(puzzle, { lives: chosen, kind: "challenge" }));
       } else if (mode.kind === "daily") {
         setGame(dailyGame(chosen));
       } else {
@@ -443,6 +476,10 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
       router.push("/sudoku/history");
       return;
     }
+    if (game.kind === "challenge" && mode.kind === "challenge") {
+      router.push(`/sudoku/leaderboard/${mode.scoreId}`);
+      return;
+    }
     if (game.kind === "ascent") {
       const r = loadAscent().run;
       if (!r || r.status !== "active") return;
@@ -454,7 +491,7 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
     resetView();
     clearGame(game.kind, game.difficulty);
     setGame(freshGame(game.difficulty, game.lives, revealedBases()));
-  }, [game, resetView, router]);
+  }, [game, mode, resetView, router]);
 
   const retry = useCallback(() => {
     if (!game || isRevealedPuzzle(game.puzzle, game.daily)) return;
@@ -510,9 +547,15 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <BackLink href={kind === "replay" ? "/sudoku/history" : "/sudoku"} />
+      <BackLink
+        href={kind === "replay" ? "/sudoku/history" : mode.kind === "challenge" ? `/sudoku/leaderboard/${mode.scoreId}` : "/sudoku"}
+      />
       {kind === "ascent" ? (
         <AscentLadder run={run} current={difficulty} />
+      ) : mode.kind === "challenge" ? (
+        <span className="flex max-w-full items-center gap-2 truncate rounded-full border border-yellow-300/40 bg-yellow-300/10 px-3 py-1.5 font-display text-sm font-semibold text-yellow-200">
+          <Swords className="size-4 shrink-0" /> Beat {mode.target.playerName}: {mode.target.score.toLocaleString("en-US")}
+        </span>
       ) : kind === "replay" ? (
         <span className="flex items-center gap-2 rounded-full border border-violet-300/40 bg-violet-400/10 px-3 py-1.5 font-display text-sm font-semibold text-violet-200">
           <RotateCcw className="size-4" /> Replay · <span className={style.text}>{DIFFICULTY_CONFIG[difficulty].label}</span> · unscored
@@ -579,6 +622,21 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
             startLabel="Begin the climb"
             noUnlimited
           />
+        ) : mode.kind === "challenge" ? (
+          <PreGame
+            difficulty={difficulty}
+            lives={lives === 0 ? 3 : lives}
+            onLives={setLives}
+            onStart={() => start(lives === 0 ? 3 : lives)}
+            kicker="Challenge"
+            heading={`Beat ${mode.target.playerName}`}
+            blurb={`Their score on this exact puzzle is ${mode.target.score.toLocaleString("en-US")}.`}
+            needs="One scored attempt: leaving now still uses it up."
+            note="Choose your lives. Fewer lives pay more, so it's part of the challenge. Hints cost points."
+            question="Your lives"
+            startLabel="Start the challenge"
+            noUnlimited
+          />
         ) : kind === "replay" ? (
           <PreGame
             difficulty={difficulty}
@@ -604,7 +662,7 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
         <Walkthrough
           puzzle={game.puzzle}
           board={correctBoard(game)}
-          nextLabel={kind === "daily" ? "Back to hub" : "Next puzzle"}
+          nextLabel={kind === "daily" ? "Back to hub" : mode.kind === "challenge" ? "Back to the score" : kind === "replay" ? "Back to history" : "Next puzzle"}
           onNext={() => {
             if (kind === "daily") router.push("/sudoku");
             else nextPuzzle();
@@ -630,6 +688,13 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
         extra={
           <>
             <ScoreView score={result.score} chain={result.chain} />
+            {mode.kind === "challenge" ? <ChallengeOutcomeView outcome={challengeOutcome} /> : null}
+            {(kind === "classic" || kind === "daily") && isRanked(game) ? (
+              <PostScorePanel
+                recordId={game.id}
+                submission={{ baseId: game.baseId, seed: game.seed, lives: game.lives, log: game.log, daily: game.daily }}
+              />
+            ) : null}
             <StrategyView report={report} />
           </>
         }
@@ -642,6 +707,10 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
           <Link href="/sudoku/history" className={buttonStyles.primary}>
             Back to history
           </Link>
+        ) : mode.kind === "challenge" ? (
+          <Link href={`/sudoku/leaderboard/${mode.scoreId}`} className={buttonStyles.primary}>
+            Back to the score
+          </Link>
         ) : (
           <button type="button" onClick={nextPuzzle} className={buttonStyles.primary}>
             <Sparkles className="size-4" />
@@ -649,6 +718,26 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
           </button>
         )}
       </VictoryCard>
+    );
+  } else if (game.status === "lost" && showResult && mode.kind === "challenge") {
+    overlay = confirmGiveUp ? (
+      giveUpPanel
+    ) : (
+      <div className="space-y-3 px-6 text-center">
+        <p className="text-5xl">⚔️</p>
+        <h2 className="font-display text-3xl font-bold text-rose-300">Challenge failed</h2>
+        <p className="text-sm font-semibold text-stone-300">
+          You ran out of lives, and that was your one scored attempt. {mode.target.playerName}&apos;s {mode.target.score.toLocaleString("en-US")} stands.
+        </p>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Link href={`/sudoku/leaderboard/${mode.scoreId}`} className={buttonStyles.primary}>
+            Back to the score
+          </Link>
+          <button type="button" onClick={() => setConfirmGiveUp(true)} className={buttonStyles.secondary}>
+            Show solution
+          </button>
+        </div>
+      </div>
     );
   } else if (game.status === "lost" && showResult && kind === "ascent") {
     overlay = run ? <RunOver run={run} best={ascent?.best ?? null} onNew={startOver} /> : null;

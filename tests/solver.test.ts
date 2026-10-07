@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BANK } from "@/lib/sudoku/bank";
 import { countSolutions, createRng, DIFFICULTIES, DIFFICULTY_CONFIG, solve, tierForCeiling, tierForEmpties } from "@/lib/sudoku/engine";
-import { applyTransform, generatePuzzle, randomTransform } from "@/lib/sudoku/puzzles";
+import { applyTransform, generatePuzzle, puzzleFromBase, randomTransform } from "@/lib/sudoku/puzzles";
 import {
   applyStep,
   bit,
@@ -204,15 +204,26 @@ describe("difficulty rating", () => {
     }
   });
 
-  it("transforms keep the puzzle valid and its rating", () => {
+  it("transforms keep the puzzle valid and in its tier (fine DR can drift, so the bank's rating is the official one)", () => {
     const rng = createRng(99);
-    for (const tier of ["easy", "hard", "expert"] as const) {
+    for (const tier of DIFFICULTIES) {
       const [grid, dr] = BANK[tier][3];
       const moved = applyTransform(grid, randomTransform(rng));
       assert.notEqual(moved, grid);
       assert.equal(countSolutions(moved, 2), 1);
-      assert.equal(ratePuzzle(moved)!.dr, dr);
+      const r = ratePuzzle(moved)!;
+      assert.equal(r.tier, tier);
+      assert.ok(Math.abs(r.dr - dr) < 0.5, `${tier}: ${r.dr} vs ${dr}`);
     }
+  });
+
+  it("(baseId, seed) always rebuilds the exact same puzzle", () => {
+    for (const tier of DIFFICULTIES) {
+      const p = generatePuzzle(tier, 4242);
+      assert.deepEqual(puzzleFromBase(p.baseId, p.seed), p);
+    }
+    assert.equal(puzzleFromBase("nope:1", 1), null);
+    assert.equal(puzzleFromBase("easy:-1", 1), null);
   });
 
   it("cloneState/placeDigit leave the original untouched", () => {

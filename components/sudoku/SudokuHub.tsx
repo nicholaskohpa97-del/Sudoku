@@ -188,9 +188,10 @@ function ModesSection() {
     { href: "#levels", label: "Single player", hint: "Six levels, from Beginner to Master", icon: Play, tone: "text-cyan-300 border-cyan-300/30" },
     { href: "#rooms", label: "Multiplayer", hint: "Race up to 20 friends", icon: Users, tone: "text-pink-300 border-pink-300/30" },
     { href: "/sudoku/ascent", label: "Ascent", hint: "Climb a tier per clear on one pool of lives", icon: Mountain, tone: "text-violet-300 border-violet-300/30" },
+    { href: "/sudoku/leaderboard", label: "Leaderboard", hint: "Post scores and challenge anyone's puzzle", icon: Trophy, tone: "text-yellow-300 border-yellow-300/30" },
   ];
   return (
-    <section aria-label="Game modes" className="grid gap-3 sm:grid-cols-3">
+    <section aria-label="Game modes" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {modes.map(({ href, label, hint, icon: Icon, tone }) => (
         <Link
           key={label}

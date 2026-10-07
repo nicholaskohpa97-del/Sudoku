@@ -23,6 +23,8 @@ export interface HistoryRecord {
   daily?: string;
   /** Ascent: which level of the run this was (1 = Beginner). */
   level?: number;
+  /** The leaderboard entry this game was posted as. */
+  posted?: string;
   result: GameResult;
   elapsedMs: number;
   parMs: number;

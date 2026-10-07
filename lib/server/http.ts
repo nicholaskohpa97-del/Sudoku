@@ -13,7 +13,7 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
   try {
     return await fn();
   } catch (err) {
-    if (err instanceof HttpError) return json({ error: err.message }, err.status);
+    if (err instanceof HttpError) return json({ ...err.data, error: err.message }, err.status);
     console.error(err);
     return json({ error: "Something went wrong" }, 500);
   }

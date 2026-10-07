@@ -5,7 +5,7 @@
 import type { GameState } from "./game";
 import type { Difficulty } from "./engine";
 
-export type SaveKind = "classic" | "daily" | "ascent" | "replay";
+export type SaveKind = "classic" | "daily" | "ascent" | "replay" | "challenge";
 const key = (kind: SaveKind, difficulty?: Difficulty) => (kind === "classic" ? `sudoku.save.${difficulty}` : `sudoku.save.${kind}`);
 const LAST_KEY = "sudoku.save.last";
 export const DAILY_DONE_KEY = "sudoku.dailyDone.v1";

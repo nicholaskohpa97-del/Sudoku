@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { HamburgerMenu } from "@/components/sudoku/HamburgerMenu";
+import { NotificationWatcher } from "@/components/sudoku/NotificationWatcher";
 import { SessionGuard } from "@/components/sudoku/SessionGuard";
 import { TabBar } from "@/components/sudoku/TabBar";
 import { Logo, MuteToggle } from "@/components/sudoku/ui";
@@ -36,6 +37,7 @@ export default function SudokuLayout({ children }: LayoutProps<"/sudoku">) {
       </div>
       <TabBar />
       <SessionGuard />
+      <NotificationWatcher />
     </div>
   );
 }

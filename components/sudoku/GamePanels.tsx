@@ -321,3 +321,39 @@ export function RunOver({
     </div>
   );
 }
+
+/** The server's verdict on a challenge attempt. */
+export function ChallengeOutcomeView({
+  outcome,
+}: {
+  outcome: { kind: "sending" } | { kind: "done"; result: import("@/lib/sudoku/types").ChallengeResult } | { kind: "error"; message: string } | null;
+}) {
+  if (!outcome || outcome.kind === "sending") {
+    return <p className="rounded-xl bg-white/[0.05] px-3 py-2 text-xs font-semibold text-stone-300">Checking your moves against the board…</p>;
+  }
+  if (outcome.kind === "error") {
+    return <p className="rounded-xl bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-200">{outcome.message}</p>;
+  }
+  const { result } = outcome;
+  const you = result.entry.score.toLocaleString("en-US");
+  const them = result.target.score.toLocaleString("en-US");
+  return (
+    <div
+      className={`animate-rise space-y-1 rounded-2xl border px-3 py-2 text-left ${
+        result.beat ? "border-yellow-300/50 bg-yellow-300/10" : "border-white/10 bg-white/[0.05]"
+      }`}
+    >
+      <p className={`font-display text-lg font-bold ${result.beat ? "text-yellow-200" : "text-stone-100"}`}>
+        {result.beat ? `👑 You beat ${result.target.playerName}!` : `${result.target.playerName}'s score stands`}
+      </p>
+      <p className="font-num text-sm font-semibold text-stone-200">
+        You {you} · {result.target.playerName} {them}
+      </p>
+      <p className="text-xs font-semibold text-stone-400">
+        {result.entry.flagged
+          ? "Your run was faster than we can verify, so it's kept off the public boards."
+          : `You're #${result.puzzleRank} on this puzzle${result.beat && result.puzzleRank === 1 ? ", and the new champion" : ""}.`}
+      </p>
+    </div>
+  );
+}

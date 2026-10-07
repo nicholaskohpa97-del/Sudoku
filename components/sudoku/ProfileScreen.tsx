@@ -1,8 +1,8 @@
 "use client";
 
-import { Award, Brain, Pencil, Star } from "lucide-react";
+import { Award, Brain, KeyRound, Pencil, Star } from "lucide-react";
 import { useState } from "react";
-import { formatDuration, usePlayer } from "@/lib/sudoku/client";
+import { formatDuration, recoveryCode, usePlayer } from "@/lib/sudoku/client";
 import { DIFFICULTIES, DIFFICULTY_CONFIG, type Difficulty } from "@/lib/sudoku/engine";
 import { useProgress } from "@/lib/sudoku/profile";
 import { useSkill } from "@/lib/sudoku/skill";
@@ -56,6 +56,8 @@ export function ProfileScreen() {
           )}
         </Panel>
       ) : null}
+
+      {ready ? <RecoveryPanel /> : null}
 
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
         {tiles.map((t) => (
@@ -162,5 +164,80 @@ function SkillPanel({ skill }: { skill: ReturnType<typeof useSkill> }) {
         </p>
       )}
     </section>
+  );
+}
+
+/** Move your identity (name, leaderboard scores, inbox) to another device. */
+function RecoveryPanel() {
+  const { player, restore } = usePlayer();
+  const [shown, setShown] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+
+  return (
+    <Panel className="space-y-3 !p-4">
+      <p className="flex items-center gap-2 font-display text-sm font-semibold text-stone-100">
+        <KeyRound className="size-4 text-cyan-300" /> Recovery code
+      </p>
+      {player ? (
+        <>
+          <p className="text-xs font-semibold text-stone-400">
+            Your name and scores live on this device. Keep this code to sign in as you on a new phone. Anyone who has it can play as you, so keep it private.
+          </p>
+          {shown ? (
+            <div className="space-y-2">
+              <code className="block rounded-xl bg-night/70 p-2 text-xs break-all text-cyan-200 select-all">{recoveryCode(player)}</code>
+              <button
+                type="button"
+                className="text-xs font-semibold text-cyan-300 hover:text-cyan-100"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(recoveryCode(player));
+                    setCopied(true);
+                  } catch {
+                    setCopied(false);
+                  }
+                }}
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setShown(true)} className="text-sm font-semibold text-cyan-300 hover:text-cyan-100">
+              Show my code
+            </button>
+          )}
+        </>
+      ) : null}
+      <form
+        className="flex gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError(null);
+          try {
+            await restore(code);
+            setRestored(true);
+            setCode("");
+          } catch (err) {
+            setError((err as Error).message);
+          }
+        }}
+      >
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Paste a code to sign in here"
+          aria-label="Recovery code"
+          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-night/60 px-3 py-2 text-sm text-stone-100 placeholder:text-stone-500"
+        />
+        <button type="submit" disabled={!code.trim()} className="rounded-xl border border-white/15 bg-white/[0.07] px-3 text-sm font-semibold text-stone-100 disabled:opacity-40">
+          Sign in
+        </button>
+      </form>
+      {error ? <p className="text-xs text-rose-300">{error}</p> : null}
+      {restored ? <p className="text-xs font-semibold text-lime-300">Signed in.</p> : null}
+    </Panel>
   );
 }
