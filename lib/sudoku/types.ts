@@ -45,6 +45,8 @@ export interface RoomView {
   hostId: string;
   difficulty: Difficulty;
   maxPlayers: number;
+  /** Lives each player gets this match (the host chooses). */
+  lives: number;
   league: { code: string; name: string } | null;
   status: RoomStatus;
   round: number;

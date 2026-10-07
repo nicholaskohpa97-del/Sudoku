@@ -158,7 +158,7 @@ function DailyHeroInner() {
                 puzzle
               </p>
               <p className="text-sm font-semibold text-stone-400">
-                {formatDuration(saved.elapsedMs)} played · {MAX_LIVES - saved.mistakes} ♥ left
+                {formatDuration(saved.elapsedMs)} played · {saved.lives === 0 ? "∞" : `${Math.max(0, saved.lives - saved.livesLost)} ♥`} left
               </p>
             </div>
             <Link href={`/sudoku/play/${saved.difficulty}`} className={`${buttonStyles.secondary} w-full`}>
@@ -181,8 +181,6 @@ function DailyHeroInner() {
     </section>
   );
 }
-
-const MAX_LIVES = 3;
 
 function SoloSection() {
   const isClient = useIsClient();

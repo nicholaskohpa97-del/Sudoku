@@ -13,15 +13,7 @@ export const DAILY_XP_BONUS = 50;
 export const ROOM_WIN_XP = 100;
 export const ROOM_FINISH_XP = 40;
 
-/** Combo window: consecutive correct entries within this many ms keep the combo alive. */
-export const COMBO_WINDOW_MS = 8000;
-
-/** Score multiplier shown for a combo of `count` consecutive correct entries. */
-export function comboMultiplier(count: number): 1 | 2 | 3 {
-  if (count >= 8) return 3;
-  if (count >= 4) return 2;
-  return 1;
-}
+export { comboMultiplier } from "./scoring";
 
 export interface XpLine {
   label: string;
@@ -76,6 +68,11 @@ export const PAR_MS: Record<Difficulty, number> = {
   expert: 28 * 60_000,
   master: 40 * 60_000,
 };
+
+/** Stars from the puzzle's own par: 1 for solving, +1 for no lives lost or hints, +1 for beating par. */
+export function starsForPar(parMs: number, livesLost: number, hints: number, elapsedMs: number): 1 | 2 | 3 {
+  return (1 + (livesLost === 0 && hints === 0 ? 1 : 0) + (elapsedMs <= parMs ? 1 : 0)) as 1 | 2 | 3;
+}
 
 /** 1 star for solving, +1 for no mistakes, +1 for beating par. */
 export function starsFor(difficulty: Difficulty, mistakes: number, elapsedMs: number): 1 | 2 | 3 {
@@ -132,6 +129,9 @@ export function liveStreak(prev: { streak: number; lastDaily: string | null }, t
 
 export interface Progress {
   xp: number;
+  /** Lifetime leaderboard points (puzzle score × clear-chain multiplier). */
+  points: number;
+  bestChain: number;
   solves: number;
   flawless: number;
   streak: number;
@@ -145,6 +145,8 @@ export interface Progress {
 export function emptyProgress(): Progress {
   return {
     xp: 0,
+    points: 0,
+    bestChain: 0,
     solves: 0,
     flawless: 0,
     streak: 0,

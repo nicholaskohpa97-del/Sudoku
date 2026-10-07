@@ -40,14 +40,26 @@ export function applyTransform(grid: string, t: Transform): string {
   return out.join("");
 }
 
-/** A puzzle of the requested tier. Deterministic for a given seed. */
-export function generatePuzzle(difficulty: Difficulty, seed: number = randomSeed()): Puzzle {
+/**
+ * A puzzle of the requested tier. Deterministic for a given seed. Bank
+ * puzzles listed in `exclude` (by `baseId`) are skipped, so a player is
+ * never dealt a disguised copy of one they gave up on.
+ */
+export function generatePuzzle(
+  difficulty: Difficulty,
+  seed: number = randomSeed(),
+  exclude?: ReadonlySet<string>,
+): Puzzle {
   const bank = BANK[difficulty];
   if (!bank.length) throw new Error(`The ${difficulty} puzzle bank is empty. Run scripts/build-bank.ts.`);
   const rng = createRng(seed);
-  const [base, rating] = bank[Math.floor(rng() * bank.length)];
+  let index = Math.floor(rng() * bank.length);
+  for (let tries = 0; exclude?.has(`${difficulty}:${index}`) && tries < bank.length; tries++) {
+    index = (index + 1 + Math.floor(rng() * bank.length)) % bank.length;
+  }
+  const [base, rating, parMs] = bank[index];
   const puzzle = applyTransform(base, randomTransform(rng));
   const solution = solve(puzzle);
   if (!solution) throw new Error("Bank puzzle has no solution");
-  return { puzzle, solution, difficulty, seed, rating };
+  return { puzzle, solution, difficulty, seed, rating, parMs, baseId: `${difficulty}:${index}` };
 }

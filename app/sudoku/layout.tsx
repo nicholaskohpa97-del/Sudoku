@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { SessionGuard } from "@/components/sudoku/SessionGuard";
 import { TabBar } from "@/components/sudoku/TabBar";
 import { Logo, MuteToggle } from "@/components/sudoku/ui";
 
@@ -30,6 +31,7 @@ export default function SudokuLayout({ children }: LayoutProps<"/sudoku">) {
         {children}
       </div>
       <TabBar />
+      <SessionGuard />
     </div>
   );
 }

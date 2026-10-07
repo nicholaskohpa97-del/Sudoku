@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { computeStandings, createLeague } from "@/lib/server/leagues";
-import { applyMove, createRoom, endRoom, finalizeIfDone, joinRoom, leaveRoom, roomView, startRoom } from "@/lib/server/rooms";
+import { applyMove, createRoom, endRoom, finalizeIfDone, joinRoom, leaveRoom, roomLives, roomView, startRoom, updateSettings } from "@/lib/server/rooms";
 import { explainDbError, keyKind, projectRef } from "@/lib/server/supabase-diagnostics";
 import { supabaseConnections } from "@/lib/supabase/env";
 import { pickConnection, selectBackend, stateStoreBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
@@ -98,6 +98,35 @@ describe("multiplayer rooms", () => {
       if (room.puzzle![i] === "0") applyMove(db, room, id, { index: i, value: room.solution![i] }, t);
     }
   };
+
+  it("the host chooses lives: eliminated exactly when they run out", () => {
+    const db: Db = { version: 1, players: {}, rooms: {}, leagues: {}, matches: [] };
+    const [a, b] = [player("a"), player("b")];
+    db.players.a = a;
+    db.players.b = b;
+    const room = createRoom(db, a, { difficulty: "easy", maxPlayers: 2, lives: 5 });
+    assert.equal(roomLives(room), 5);
+    joinRoom(db, room, b);
+    assert.throws(() => updateSettings(room, a.id, { lives: 4 }), /Lives must be one of/);
+    updateSettings(room, a.id, { lives: 2 });
+    assert.equal(roomView(db, room, a.id).lives, 2);
+    startRoom(room, a.id, 1000);
+    const t = room.startedAt! + 1000;
+    const empty = room.puzzle!.indexOf("0");
+    const wrong = (Number(room.solution![empty]) % 9) + 1;
+    assert.equal(applyMove(db, room, b.id, { index: empty, value: wrong }, t).eliminated, false);
+    assert.equal(applyMove(db, room, b.id, { index: empty, value: wrong }, t).eliminated, true);
+    assert.throws(() => updateSettings(room, a.id, { lives: 3 }), /locked during a match/);
+  });
+
+  it("older rooms without a lives setting play with three", () => {
+    const db: Db = { version: 1, players: {}, rooms: {}, leagues: {}, matches: [] };
+    const a = player("a");
+    db.players.a = a;
+    const room = createRoom(db, a, { difficulty: "easy", maxPlayers: 2 });
+    delete room.lives;
+    assert.equal(roomLives(room), MAX_MISTAKES);
+  });
 
   it("enforces the player cap", () => {
     const { db, room } = setup(3);
@@ -253,8 +282,8 @@ describe("progression", () => {
     assert.equal(starsFor("medium", 2, 60 * 60_000), 1);
   });
 
-  it("builds combo multipliers", () => {
-    assert.deepEqual([1, 3, 4, 7, 8, 20].map(comboMultiplier), [1, 1, 2, 2, 3, 3]);
+  it("builds combo multipliers by count, not time", () => {
+    assert.deepEqual([1, 4, 5, 9, 10, 20, 35].map(comboMultiplier), [1, 1, 1.5, 1.5, 2, 3, 4]);
   });
 
   it("gives everyone the same daily puzzle and keeps streaks", () => {

@@ -11,7 +11,7 @@ if (!dir) throw new Error("usage: merge-bank.ts <parts-dir>");
 
 for (const tier of DIFFICULTIES) {
   const seen = new Set<string>();
-  const entries: [string, number][] = [];
+  const entries: [string, number, number][] = [];
   for (const file of readdirSync(dir).filter((f) => f.startsWith(`${tier}`) && f.endsWith(".json"))) {
     const parts = JSON.parse(readFileSync(path.join(dir, file), "utf8")) as { p: string; dr: number }[];
     for (const { p } of parts) {
@@ -23,7 +23,7 @@ for (const tier of DIFFICULTIES) {
       if (!r || r.tier !== tier || r.ceiling < band.minRating || r.ceiling >= band.maxRating || !r.logical) {
         throw new Error(`${tier}: rating mismatch for ${p}: ${JSON.stringify(r)}`);
       }
-      entries.push([p, r.dr]);
+      entries.push([p, r.dr, r.parMs]);
     }
   }
   entries.sort((a, b) => a[1] - b[1]);

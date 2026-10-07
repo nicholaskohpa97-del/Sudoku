@@ -1,10 +1,13 @@
 "use client";
 
-import { Award, Pencil, Star } from "lucide-react";
+import { Award, Brain, Pencil, Star } from "lucide-react";
 import { useState } from "react";
 import { formatDuration, usePlayer } from "@/lib/sudoku/client";
 import { DIFFICULTIES, DIFFICULTY_CONFIG, type Difficulty } from "@/lib/sudoku/engine";
 import { useProgress } from "@/lib/sudoku/profile";
+import { useSkill } from "@/lib/sudoku/skill";
+import { TECHNIQUES, type TechniqueId } from "@/lib/sudoku/solver";
+import { nextToLearn } from "@/lib/sudoku/strategy";
 import { ACHIEVEMENTS, dayKey, liveStreak } from "@/lib/sudoku/progress";
 import { loadStats, type SoloStats } from "@/lib/sudoku/stats";
 import { NameForm } from "./NameGate";
@@ -15,6 +18,7 @@ import { BackLink, Panel, SectionTitle, useIsClient } from "./ui";
 export function ProfileScreen() {
   const { player, ready } = usePlayer();
   const progress = useProgress();
+  const skill = useSkill();
   const isClient = useIsClient();
   const [editing, setEditing] = useState(false);
   const stats: Partial<Record<Difficulty, SoloStats>> = isClient ? loadStats() : {};
@@ -22,6 +26,8 @@ export function ProfileScreen() {
   const streak = progress ? liveStreak(progress, dayKey()) : 0;
 
   const tiles = [
+    { label: "Points", value: (progress?.points ?? 0).toLocaleString("en-US") },
+    { label: "Best chain", value: progress?.bestChain ?? 0 },
     { label: "Puzzles solved", value: progress?.solves ?? 0 },
     { label: "Flawless", value: progress?.flawless ?? 0 },
     { label: "Best combo", value: `×${progress?.bestCombo ?? 0}` },
@@ -51,7 +57,7 @@ export function ProfileScreen() {
         </Panel>
       ) : null}
 
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
         {tiles.map((t) => (
           <div key={t.label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-center">
             <p className="font-num text-2xl font-bold text-cyan-200">{t.value}</p>
@@ -59,6 +65,8 @@ export function ProfileScreen() {
           </div>
         ))}
       </div>
+
+      <SkillPanel skill={skill} />
 
       <section className="space-y-3">
         <SectionTitle icon={<Award />} tone="gold">
@@ -111,5 +119,48 @@ export function ProfileScreen() {
         Progress is saved on this device. No ads, no trackers.
       </p>
     </div>
+  );
+}
+
+/** The techniques the player's own moves have shown, and the next one to learn. */
+function SkillPanel({ skill }: { skill: ReturnType<typeof useSkill> }) {
+  const entries = Object.entries(skill?.profile ?? {}) as [TechniqueId, { demonstrated: number; likely: number; possible: number }][];
+  const shown = entries
+    .filter(([, v]) => v.demonstrated + v.likely + v.possible > 0)
+    .sort((a, b) => TECHNIQUES[b[0]].weight - TECHNIQUES[a[0]].weight);
+  const next = skill ? nextToLearn(skill.profile) : null;
+  return (
+    <section className="space-y-3">
+      <SectionTitle icon={<Brain />} tone="cyan">
+        Your techniques
+      </SectionTitle>
+      {shown.length ? (
+        <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+          <ul className="space-y-1.5">
+            {shown.slice(0, 8).map(([id, v]) => (
+              <li key={id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="font-display font-semibold text-stone-100">{TECHNIQUES[id].name}</span>
+                <span className="font-num text-xs font-semibold text-stone-400">
+                  <span className="text-lime-300">{v.demonstrated} clear</span> · <span className="text-cyan-300">{v.likely} likely</span> ·{" "}
+                  {v.possible} maybe
+                </span>
+              </li>
+            ))}
+          </ul>
+          {next ? (
+            <p className="rounded-xl bg-violet-300/10 px-3 py-2 text-xs font-semibold text-violet-100">
+              Learn next: <span className="font-bold">{TECHNIQUES[next].name}</span>. {TECHNIQUES[next].blurb}
+            </p>
+          ) : null}
+          <p className="text-[0.65rem] font-semibold text-stone-500">
+            Inferred from your moves across {skill?.games ?? 0} solved {skill?.games === 1 ? "game" : "games"}.
+          </p>
+        </div>
+      ) : (
+        <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-semibold text-stone-400">
+          Solve a Medium or harder puzzle and your moves will show which techniques you use.
+        </p>
+      )}
+    </section>
   );
 }

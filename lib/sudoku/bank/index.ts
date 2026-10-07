@@ -8,7 +8,8 @@ import hard from "./hard.json";
 import expert from "./expert.json";
 import master from "./master.json";
 
-export type BankEntry = [puzzle: string, rating: number];
+/** [grid, Difficulty Rating, par solve time in ms] */
+export type BankEntry = [puzzle: string, rating: number, parMs: number];
 
 export const BANK: Record<Difficulty, BankEntry[]> = {
   beginner: beginner.puzzles as BankEntry[],

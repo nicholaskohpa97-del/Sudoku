@@ -7,7 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError, api, formatDuration, post, usePlayer } from "@/lib/sudoku/client";
 import { awardRoom, type Award } from "@/lib/sudoku/profile";
 import { sfx } from "@/lib/sudoku/sfx";
-import { DIFFICULTIES, DIFFICULTY_CONFIG, MAX_MISTAKES } from "@/lib/sudoku/engine";
+import { DIFFICULTIES, DIFFICULTY_CONFIG } from "@/lib/sudoku/engine";
+import type { InputMode } from "@/lib/sudoku/game";
+import { LIVES_OPTIONS } from "@/lib/sudoku/scoring";
+import { AWAY_EVENT } from "@/lib/sudoku/session";
 import { MAX_ROOM_PLAYERS, MIN_ROOM_PLAYERS, type MoveResult, type RoomView } from "@/lib/sudoku/types";
 import { Board, type CellState } from "./Board";
 import { MistakeMeter, NumberPad, useBoardKeys } from "./Controls";
@@ -292,6 +295,19 @@ function Lobby({
                 ))}
               </select>
             </Field>
+            <Field label="Lives per player">
+              <select
+                className={inputStyles}
+                value={room.lives}
+                onChange={(e) => command("settings", { lives: Number(e.target.value) })}
+              >
+                {LIVES_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n} {n === 1 ? "life" : "lives"}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label={`Max players: ${room.maxPlayers}`}>
               <input
                 type="range"
@@ -348,8 +364,9 @@ function MatchBoard({
   show: ShowToast;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
-  const [notesMode, setNotesMode] = useState(false);
+  const [input, setInput] = useState<InputMode>("pen");
   const [notes, setNotes] = useState<number[]>(() => new Array(81).fill(0));
+  const [trial, setTrial] = useState<number[]>(() => new Array(81).fill(0));
   const [wrong, setWrong] = useState<Record<number, number>>({});
   const [flash, setFlash] = useState<{ index: number; key: number } | null>(null);
   const pending = useRef(new Set<number>());
@@ -374,29 +391,27 @@ function MatchBoard({
         given,
         wrong: finished ? !given && solvedValue === 0 : !solvedValue && !!wrong[i],
         notes: solvedValue || finished ? 0 : notes[i],
+        trial: solvedValue || finished || value ? 0 : trial[i],
       };
     });
-  }, [room.status, room.solution, room.puzzle, me, wrong, notes]);
+  }, [room.status, room.solution, room.puzzle, me, wrong, notes, trial]);
 
-  const enter = useCallback(
-    async (n: number) => {
-      if (!canPlay || selected === null || !me) return;
-      const i = selected;
-      if (room.puzzle![i] !== "0" || me.board[i] !== "0" || pending.current.has(i)) return;
-      if (notesMode) {
-        setWrong((w) => without(w, i));
-        sfx.tap();
-        setNotes((prev) => {
-          const next = prev.slice();
-          next[i] ^= 1 << n;
-          return next;
-        });
-        return;
-      }
+  // Leaving the app ends the combo.
+  useEffect(() => {
+    const onAway = () => juice.breakCombo();
+    window.addEventListener(AWAY_EVENT, onAway);
+    return () => window.removeEventListener(AWAY_EVENT, onAway);
+  }, [juice]);
+
+  /** Sends one move to the server and shows what came back. Resolves false if the player is out. */
+  const submit = useCallback(
+    async (i: number, n: number): Promise<boolean> => {
+      if (!me || pending.current.has(i)) return true;
       pending.current.add(i);
       try {
         const res = await post<MoveResult>(`/rooms/${room.code}`, { action: "move", index: i, value: n });
         accept(res.room);
+        setTrial((t) => (t[i] ? t.map((v, k) => (k === i ? 0 : v)) : t));
         if (res.correct) {
           setWrong((w) => without(w, i));
           setNotes((prev) => clearPeerNotes(prev, i, n));
@@ -412,25 +427,67 @@ function MatchBoard({
           setFlash({ index: i, key: Date.now() });
           juice.wrong();
           if (res.eliminated) sfx.lose();
+          const left = room.lives - res.mistakes;
           show(
             res.eliminated
               ? `${n} is wrong. Out of lives for this round!`
-              : `Not ${n}! ${MAX_MISTAKES - res.mistakes} ${MAX_MISTAKES - res.mistakes === 1 ? "life" : "lives"} left`,
+              : `Not ${n}! ${left} ${left === 1 ? "life" : "lives"} left`,
             "error",
           );
         }
+        return !res.eliminated && res.finishedMs === null;
       } catch (err) {
         show(err instanceof ApiRequestError ? err.message : "Connection problem — try again", "error");
+        return false;
       } finally {
         pending.current.delete(i);
       }
     },
-    [canPlay, selected, me, room.puzzle, room.code, notesMode, accept, show, juice],
+    [me, room.code, room.lives, accept, show, juice],
   );
+
+  const enter = useCallback(
+    async (n: number) => {
+      if (!canPlay || selected === null || !me) return;
+      const i = selected;
+      if (room.puzzle![i] !== "0" || me.board[i] !== "0" || pending.current.has(i)) return;
+      if (input === "notes") {
+        setWrong((w) => without(w, i));
+        sfx.tap();
+        setNotes((prev) => {
+          const next = prev.slice();
+          next[i] ^= 1 << n;
+          return next;
+        });
+        return;
+      }
+      if (input === "trial") {
+        // One tentative digit per cell; never sent to the server until committed.
+        setWrong((w) => without(w, i));
+        sfx.tap();
+        setTrial((prev) => prev.map((v, k) => (k === i ? (v === n ? 0 : n) : v)));
+        return;
+      }
+      await submit(i, n);
+    },
+    [canPlay, selected, me, room.puzzle, input, submit],
+  );
+
+  const trialCount = trial.filter(Boolean).length;
+  /** Commits every tentative digit in reading order, stopping if the round ends for you. */
+  const commitTrials = useCallback(async () => {
+    if (!canPlay) return;
+    for (let i = 0; i < 81; i++) {
+      if (!trial[i]) continue;
+      const keepGoing = await submit(i, trial[i]);
+      if (!keepGoing) break;
+    }
+  }, [canPlay, trial, submit]);
 
   const erase = useCallback(() => {
     if (selected === null || !canPlay) return;
     setWrong((w) => without(w, selected));
+    setTrial((prev) => prev.map((v, k) => (k === selected ? 0 : v)));
     setNotes((prev) => {
       const next = prev.slice();
       next[selected] = 0;
@@ -438,8 +495,16 @@ function MatchBoard({
     });
   }, [selected, canPlay]);
 
-  const toggleNotes = useCallback(() => setNotesMode((m) => !m), []);
-  useBoardKeys({ enabled: canPlay, selected, setSelected, onNumber: enter, onErase: erase, onToggleNotes: toggleNotes });
+  useBoardKeys({
+    enabled: canPlay,
+    selected,
+    setSelected,
+    onNumber: enter,
+    onErase: erase,
+    mode: input,
+    onMode: setInput,
+    onCommit: () => void commitTrials(),
+  });
 
   // Countdown beeps, then "GO!".
   const countdownSecs = countdown ? Math.ceil((room.startedAt! - now) / 1000) : 0;
@@ -507,7 +572,7 @@ function MatchBoard({
     <div className="space-y-4">
       {room.status === "finished" ? <Results room={room} playerId={playerId} award={award} /> : null}
       <div className="mx-auto grid w-full max-w-[min(92vw,30rem)] grid-cols-3 items-center text-sm">
-        <MistakeMeter mistakes={me?.mistakes ?? 0} />
+        <MistakeMeter mistakes={me?.mistakes ?? 0} lives={room.lives} />
         <div className="flex justify-center">
           <ComboMeter combo={juice.combo} />
         </div>
@@ -542,11 +607,16 @@ function MatchBoard({
       {room.status === "playing" ? (
         <NumberPad
           cells={cells}
-          notesMode={notesMode}
+          mode={input}
+          onMode={setInput}
           disabled={!canPlay}
           onNumber={enter}
           onErase={erase}
-          onToggleNotes={toggleNotes}
+          trial={{
+            count: trialCount,
+            onCommit: () => void commitTrials(),
+            onClear: () => setTrial(new Array(81).fill(0)),
+          }}
         />
       ) : null}
     </div>
@@ -644,11 +714,11 @@ function Leaderboard({ room, playerId }: { room: RoomView; playerId: string | nu
                       {p.finishedMs !== null
                         ? `Done · ${formatDuration(p.finishedMs)}`
                         : p.eliminated
-                          ? "Out (3 mistakes)"
+                          ? `Out (${room.lives} ${room.lives === 1 ? "mistake" : "mistakes"})`
                           : `${pct}%`}
                     </span>
                     <span>
-                      {p.mistakes}/{MAX_MISTAKES} mistakes{p.points !== null ? ` · +${p.points} pts` : ""}
+                      {p.mistakes}/{room.lives} mistakes{p.points !== null ? ` · +${p.points} pts` : ""}
                     </span>
                   </div>
                 </>

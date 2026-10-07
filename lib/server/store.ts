@@ -39,6 +39,8 @@ export interface RoomRecord {
   hostId: string;
   difficulty: Difficulty;
   maxPlayers: number;
+  /** Lives each player gets, chosen by the host. Older rooms have none: that means 3. */
+  lives?: number;
   leagueCode: string | null;
   status: RoomStatus;
   round: number;

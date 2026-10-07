@@ -100,6 +100,10 @@ export interface Puzzle {
   seed: number;
   /** Difficulty Rating (1–10) of this exact grid; see docs/difficulty.md. */
   rating: number;
+  /** Par solve time for a human, in ms (from the technique trace). */
+  parMs: number;
+  /** Which bank puzzle this was disguised from, e.g. "hard:42". */
+  baseId: string;
 }
 
 export function isDifficulty(value: unknown): value is Difficulty {

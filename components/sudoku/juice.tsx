@@ -7,7 +7,8 @@ import { Flame } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { colOf, completedUnits, rowOf, type CompletedUnit } from "@/lib/sudoku/engine";
 import { recordMoment } from "@/lib/sudoku/profile";
-import { ACHIEVEMENTS, COMBO_WINDOW_MS, comboMultiplier } from "@/lib/sudoku/progress";
+import { ACHIEVEMENTS } from "@/lib/sudoku/progress";
+import { comboMultiplier } from "@/lib/sudoku/scoring";
 import { sfx } from "@/lib/sudoku/sfx";
 import type { BoardEffects } from "./Board";
 
@@ -61,8 +62,9 @@ export function fireConfetti(big = true) {
 }
 
 export interface Combo {
+  /** Consecutive correct entries. Not time-based: only a mistake, a hint or leaving the app ends it. */
   count: number;
-  /** When the combo was last extended; the meter drains from here. */
+  /** Changes on every update, so the pill replays its pop animation. */
   at: number;
 }
 
@@ -85,12 +87,13 @@ export function useJuice(onAchievement?: (text: string) => void) {
   /**
    * Call after a correct entry. `board` holds only correct digits (givens
    * plus correct entries), "0" elsewhere, including the new one at `index`.
+   * Pass `combo` when the game owns the count (solo); otherwise it just counts up.
    */
   const correct = useCallback(
-    (board: string, index: number) => {
+    (board: string, index: number, combo?: number) => {
       const now = Date.now();
       const prev = comboRef.current;
-      const count = prev.count && now - prev.at <= COMBO_WINDOW_MS ? prev.count + 1 : 1;
+      const count = combo ?? prev.count + 1;
       comboRef.current = { count, at: now };
       setCombo(comboRef.current);
       maxCombo.current = Math.max(maxCombo.current, count);
@@ -131,6 +134,19 @@ export function useJuice(onAchievement?: (text: string) => void) {
     setTimeout(() => fireConfetti(true), 450);
   }, []);
 
+  /** Ends the combo without a sound (leaving the app, using a hint). */
+  const breakCombo = useCallback(() => {
+    comboRef.current = { count: 0, at: Date.now() };
+    setCombo(comboRef.current);
+  }, []);
+
+  /** Restores a saved combo count after a refresh. */
+  const restoreCombo = useCallback((count: number, max = count) => {
+    comboRef.current = { count, at: Date.now() };
+    maxCombo.current = Math.max(maxCombo.current, max);
+    setCombo(comboRef.current);
+  }, []);
+
   const reset = useCallback(() => {
     comboRef.current = { count: 0, at: 0 };
     maxCombo.current = 0;
@@ -138,26 +154,21 @@ export function useJuice(onAchievement?: (text: string) => void) {
     setEffects({ pop: null, sweep: null, label: null });
   }, []);
 
-  return { effects, combo, maxCombo, correct, wrong, celebrate, reset, announce };
+  return { effects, combo, maxCombo, correct, wrong, celebrate, reset, breakCombo, restoreCombo, announce };
 }
 
-/** "🔥 ×5 COMBO" pill with a bar that drains over the combo window. */
+/** "🔥 ×5" pill with the score multiplier it has earned. It stays until something breaks the combo. */
 export function ComboMeter({ combo }: { combo: Combo }) {
   if (combo.count < 2) return <span className="h-7" />;
   const mult = comboMultiplier(combo.count);
   return (
     <span
-      key={combo.count}
-      className="animate-cell-pop relative inline-flex h-7 items-center gap-1 overflow-hidden rounded-full border border-yellow-300/50 bg-yellow-300/10 px-2.5 font-display text-sm font-bold text-yellow-200"
+      key={combo.at}
+      className="animate-cell-pop relative inline-flex h-7 items-center gap-1 rounded-full border border-yellow-300/50 bg-yellow-300/10 px-2.5 font-display text-sm font-bold text-yellow-200"
+      aria-label={`Combo of ${combo.count}, ${mult} times points`}
     >
       <Flame className="size-4 fill-orange-400 text-orange-300" />×{combo.count}
       {mult > 1 ? <span className="rounded-full bg-pink-400 px-1.5 text-xs text-night">{mult}x</span> : null}
-      <span
-        key={combo.at}
-        aria-hidden
-        className="animate-drain absolute inset-x-0 bottom-0 h-0.5 origin-left bg-yellow-300"
-        style={{ animationDuration: `${COMBO_WINDOW_MS}ms` }}
-      />
     </span>
   );
 }
