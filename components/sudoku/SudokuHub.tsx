@@ -192,7 +192,7 @@ function SoloSection() {
       <SectionTitle icon={<Star />} tone="gold">
         Pick your level
       </SectionTitle>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {DIFFICULTIES.map((d, k) => {
           const s = stats[d];
           const style = DIFFICULTY_STYLE[d];
@@ -204,7 +204,7 @@ function SoloSection() {
               className={`group animate-rise relative overflow-hidden rounded-3xl border-2 bg-gradient-to-b p-4 transition hover:-translate-y-1 ${style.border} ${style.glow} ${style.gradient}`}
             >
               <div className="flex gap-0.5">
-                {Array.from({ length: 4 }, (_, i) => (
+                {Array.from({ length: 6 }, (_, i) => (
                   <Star
                     key={i}
                     className={`size-3.5 ${i < style.stars ? `fill-current ${style.text}` : "text-stone-600"}`}

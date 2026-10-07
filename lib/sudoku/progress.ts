@@ -6,7 +6,7 @@ import type { Difficulty } from "./engine";
 // ---------------------------------------------------------------------------
 // XP and levels
 
-export const XP_BASE: Record<Difficulty, number> = { easy: 50, medium: 100, hard: 175, expert: 275 };
+export const XP_BASE: Record<Difficulty, number> = { beginner: 25, easy: 50, medium: 100, hard: 175, expert: 275, master: 450 };
 export const FLAWLESS_XP_MULTIPLIER = 1.5;
 export const COMBO_XP_PER_STEP = 5;
 export const DAILY_XP_BONUS = 50;
@@ -69,10 +69,12 @@ export function levelInfo(xp: number): { level: number; title: string; into: num
 
 /** "Par" solve times; beating par earns a star. */
 export const PAR_MS: Record<Difficulty, number> = {
+  beginner: 4 * 60_000,
   easy: 6 * 60_000,
   medium: 10 * 60_000,
   hard: 18 * 60_000,
   expert: 28 * 60_000,
+  master: 40 * 60_000,
 };
 
 /** 1 star for solving, +1 for no mistakes, +1 for beating par. */
@@ -105,7 +107,7 @@ export function dailySeed(key: string): number {
 }
 
 /** Difficulty follows the week: gentle on Monday, Expert on Sunday. */
-const WEEKLY: Difficulty[] = ["expert", "easy", "medium", "medium", "hard", "medium", "hard"];
+const WEEKLY: Difficulty[] = ["expert", "beginner", "easy", "medium", "hard", "medium", "hard"];
 
 export function dailyDifficulty(key: string): Difficulty {
   const weekday = new Date(`${key}T00:00:00Z`).getUTCDay();

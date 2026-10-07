@@ -1,4 +1,5 @@
-import { generatePuzzle, isDifficulty, MAX_MISTAKES } from "@/lib/sudoku/engine";
+import { isDifficulty, MAX_MISTAKES } from "@/lib/sudoku/engine";
+import { generatePuzzle } from "@/lib/sudoku/puzzles";
 import { monthKey, scoreMatch, DEFAULT_TOURNAMENT_TZ } from "@/lib/sudoku/tournament";
 import {
   DEFAULT_ROOM_PLAYERS,

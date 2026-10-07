@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "calibrate": "tsx scripts/calibrate.ts",
+    "bank:merge": "tsx scripts/merge-bank.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

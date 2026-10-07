@@ -7,14 +7,12 @@ import { supabaseConnections } from "@/lib/supabase/env";
 import { pickConnection, selectBackend, stateStoreBackend, type Db, type PlayerRecord, type RoomRecord } from "@/lib/server/store";
 import {
   completedUnits,
-  countClues,
   countSolutions,
   DIFFICULTIES,
   DIFFICULTY_CONFIG,
-  generatePuzzle,
   MAX_MISTAKES,
-  solvableWithSingles,
 } from "@/lib/sudoku/engine";
+import { generatePuzzle } from "@/lib/sudoku/puzzles";
 import { inviteEmailText, inviteMailto, parseEmails, parseInviteCode } from "@/lib/sudoku/invite";
 import {
   comboMultiplier,
@@ -51,8 +49,8 @@ describe("engine", () => {
         assert.ok(validSolution(p.solution));
         assert.equal(countSolutions(p.puzzle), 1);
         for (let i = 0; i < 81; i++) if (p.puzzle[i] !== "0") assert.equal(p.puzzle[i], p.solution[i]);
-        assert.ok(countClues(p.puzzle) <= DIFFICULTY_CONFIG[difficulty].clues + 4);
-        if (DIFFICULTY_CONFIG[difficulty].singlesOnly) assert.ok(solvableWithSingles(p.puzzle));
+        const band = DIFFICULTY_CONFIG[difficulty];
+        assert.ok(p.rating >= band.minRating && p.rating < band.maxRating, `${difficulty} rating ${p.rating}`);
       }
     });
   }
@@ -61,9 +59,9 @@ describe("engine", () => {
     assert.deepEqual(generatePuzzle("hard", 42), generatePuzzle("hard", 42));
   });
 
-  it("orders difficulties by clue count", () => {
-    const clues = DIFFICULTIES.map((d) => countClues(generatePuzzle(d, 7).puzzle));
-    assert.deepEqual([...clues].sort((a, b) => b - a), clues);
+  it("orders tiers by rating", () => {
+    const ratings = DIFFICULTIES.map((d) => generatePuzzle(d, 7).rating);
+    assert.deepEqual([...ratings].sort((a, b) => a - b), ratings);
   });
 });
 
@@ -265,7 +263,7 @@ describe("progression", () => {
     assert.equal(dailySeed(key), dailySeed("2026-10-05"));
     assert.notEqual(dailySeed(key), dailySeed("2026-10-06"));
     assert.equal(dailyDifficulty("2026-10-04"), "expert"); // Sunday
-    assert.equal(dailyDifficulty("2026-10-05"), "easy"); // Monday
+    assert.equal(dailyDifficulty("2026-10-05"), "beginner"); // Monday
 
     assert.equal(nextStreak({ streak: 4, lastDaily: "2026-10-04" }, "2026-10-05"), 5);
     assert.equal(nextStreak({ streak: 4, lastDaily: "2026-10-05" }, "2026-10-05"), 4);

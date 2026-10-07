@@ -89,7 +89,7 @@ export function ProfileScreen() {
         <SectionTitle icon={<Star />} tone="cyan">
           Solo records
         </SectionTitle>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           {DIFFICULTIES.map((d) => {
             const s = stats[d];
             return (

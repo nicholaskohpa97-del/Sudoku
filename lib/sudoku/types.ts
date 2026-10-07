@@ -8,10 +8,12 @@ export const MAX_LEAGUE_MEMBERS = 50;
 
 /** Hard stop for a multiplayer match, by difficulty. */
 export const MATCH_TIME_LIMIT_MIN: Record<Difficulty, number> = {
+  beginner: 15,
   easy: 20,
   medium: 30,
   hard: 45,
   expert: 60,
+  master: 90,
 };
 
 export type RoomStatus = "lobby" | "playing" | "finished";

@@ -1,19 +1,92 @@
 // Pure Sudoku engine: seeded generation, uniqueness-checked solving and a
 // human-style grader. No DOM or Node APIs, so it runs on client and server.
 
-export type Difficulty = "easy" | "medium" | "hard" | "expert";
+export type Difficulty = "beginner" | "easy" | "medium" | "hard" | "expert" | "master";
 
-export const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard", "expert"];
+/** Ordered easiest to hardest. */
+export const DIFFICULTIES: Difficulty[] = ["beginner", "easy", "medium", "hard", "expert", "master"];
 
-export const DIFFICULTY_CONFIG: Record<
-  Difficulty,
-  { label: string; clues: number; singlesOnly: boolean; blurb: string }
-> = {
-  easy: { label: "Easy", clues: 38, singlesOnly: true, blurb: "Relaxed warm-up" },
-  medium: { label: "Medium", clues: 32, singlesOnly: true, blurb: "Needs hidden singles" },
-  hard: { label: "Hard", clues: 27, singlesOnly: false, blurb: "Candidate work required" },
-  expert: { label: "Expert", clues: 23, singlesOnly: false, blurb: "Few clues, deep logic" },
+export interface DifficultyConfig {
+  label: string;
+  blurb: string;
+  /**
+   * Rating band: a puzzle belongs to the tier whose [minRating, maxRating)
+   * contains the weight of the hardest technique it forces (see
+   * `lib/sudoku/solver/rate.ts` and docs/difficulty.md).
+   */
+  minRating: number;
+  maxRating: number;
+  /** What the player needs, in plain words. */
+  needs: string;
+}
+
+export const DIFFICULTY_CONFIG: Record<Difficulty, DifficultyConfig> = {
+  beginner: {
+    label: "Beginner",
+    blurb: "Just scan for where each digit fits",
+    minRating: 1,
+    maxRating: 2,
+    needs: "Hidden singles only",
+  },
+  easy: {
+    label: "Easy",
+    blurb: "Naked singles and pointing pairs",
+    minRating: 2,
+    maxRating: 3,
+    needs: "Naked singles, pointing and claiming",
+  },
+  medium: {
+    label: "Medium",
+    blurb: "Pairs, triples and your first X-Wing",
+    minRating: 3,
+    maxRating: 4,
+    needs: "Naked/hidden pairs, naked triples, X-Wing, Swordfish",
+  },
+  hard: {
+    label: "Hard",
+    blurb: "Wings, kites and unique rectangles",
+    minRating: 4,
+    maxRating: 5.5,
+    needs: "Hidden triples, Skyscraper, Kite, XY/XYZ/W-Wing, Unique Rectangles, coloring, quads, Jellyfish",
+  },
+  expert: {
+    label: "Expert",
+    blurb: "Long chains of cause and effect",
+    minRating: 5.5,
+    maxRating: 7,
+    needs: "X-chains, XY-chains and alternating inference chains",
+  },
+  master: {
+    label: "Master",
+    blurb: "Forcing chains. Brace yourself",
+    minRating: 7,
+    maxRating: 10.01,
+    needs: "Forcing chains, Nishio and trial-and-error depth",
+  },
 };
+
+/**
+ * Scan load: how many empty cells a player must fill. Puzzles that need only
+ * singles are still a lot of work with few clues, so they are raised to Easy
+ * above `BEGINNER_MAX_EMPTIES` empty cells and to Medium above `EASY_MAX_EMPTIES`.
+ */
+export const BEGINNER_MAX_EMPTIES = 41;
+export const EASY_MAX_EMPTIES = 49;
+
+/** Lowest tier that the scan load alone allows. */
+export function tierForEmpties(empties: number): Difficulty {
+  if (empties <= BEGINNER_MAX_EMPTIES) return "beginner";
+  if (empties <= EASY_MAX_EMPTIES) return "easy";
+  return "medium";
+}
+
+/** The tier a hardest-technique weight falls into. */
+export function tierForCeiling(ceiling: number): Difficulty {
+  for (let i = DIFFICULTIES.length - 1; i >= 0; i--) {
+    if (ceiling >= DIFFICULTY_CONFIG[DIFFICULTIES[i]].minRating) return DIFFICULTIES[i];
+  }
+  return "beginner";
+}
 
 export const MAX_MISTAKES = 3;
 
@@ -25,6 +98,8 @@ export interface Puzzle {
   solution: Grid;
   difficulty: Difficulty;
   seed: number;
+  /** Difficulty Rating (1–10) of this exact grid; see docs/difficulty.md. */
+  rating: number;
 }
 
 export function isDifficulty(value: unknown): value is Difficulty {
@@ -45,7 +120,7 @@ export function createRng(seed: number): () => number {
   };
 }
 
-function shuffle<T>(items: T[], rng: () => number): T[] {
+export function shuffle<T>(items: T[], rng: () => number): T[] {
   for (let i = items.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [items[i], items[j]] = [items[j], items[i]];
@@ -72,7 +147,7 @@ export const PEERS: number[][] = Array.from({ length: 81 }, (_, i) => {
 });
 
 /** The 27 units (9 rows, 9 cols, 9 boxes) as lists of cell indices. */
-const UNITS: number[][] = [
+export const UNITS: number[][] = [
   ...Array.from({ length: 9 }, (_, r) => Array.from({ length: 9 }, (_, c) => r * 9 + c)),
   ...Array.from({ length: 9 }, (_, c) => Array.from({ length: 9 }, (_, r) => r * 9 + c)),
   ...Array.from({ length: 9 }, (_, b) =>
@@ -80,9 +155,9 @@ const UNITS: number[][] = [
   ),
 ];
 
-const ALL = 0x3fe; // bits 1..9
-const bit = (d: number) => 1 << d;
-const popcount = (m: number) => {
+export const ALL = 0x3fe; // bits 1..9
+export const bit = (d: number) => 1 << d;
+export const popcount = (m: number) => {
   let n = 0;
   while (m) {
     m &= m - 1;
@@ -90,7 +165,7 @@ const popcount = (m: number) => {
   }
   return n;
 };
-const digitsOf = (m: number) => {
+export const digitsOf = (m: number) => {
   const out: number[] = [];
   for (let d = 1; d <= 9; d++) if (m & bit(d)) out.push(d);
   return out;
@@ -152,6 +227,13 @@ export function solve(grid: Grid): Grid | null {
   return found.length ? found[0].join("") : null;
 }
 
+/** A random completed grid (used by the offline bank builder). */
+export function randomSolution(rng: () => number): Grid {
+  const found: number[][] = [];
+  search(new Array(81).fill(0), 1, rng, found);
+  return found[0].join("");
+}
+
 // ---------------------------------------------------------------------------
 // Human-style grader: can the puzzle be finished with naked + hidden singles?
 
@@ -184,71 +266,8 @@ export function solvableWithSingles(grid: Grid): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Generation
-
-function generateSolved(rng: () => number): number[] {
-  const found: number[][] = [];
-  search(new Array(81).fill(0), 1, rng, found);
-  return found[0];
-}
-
-function carve(solution: number[], targetClues: number, rng: () => number): number[] {
-  const cells = solution.slice();
-  // Remove cells in 180°-symmetric pairs for a classic look.
-  const order = shuffle(
-    Array.from({ length: 41 }, (_, i) => i),
-    rng,
-  );
-  let clues = 81;
-  for (const i of order) {
-    if (clues <= targetClues) break;
-    const j = 80 - i;
-    const saved = [cells[i], cells[j]];
-    cells[i] = 0;
-    cells[j] = 0;
-    const removed = i === j ? 1 : 2;
-    if (countSolutions(cells.join(""), 2) === 1) {
-      clues -= removed;
-    } else {
-      cells[i] = saved[0];
-      cells[j] = saved[1];
-    }
-  }
-  // Symmetric removal can plateau above the target; finish with single cells.
-  for (const i of shuffle(Array.from({ length: 81 }, (_, k) => k), rng)) {
-    if (clues <= targetClues) break;
-    if (cells[i] === 0) continue;
-    const saved = cells[i];
-    cells[i] = 0;
-    if (countSolutions(cells.join(""), 2) === 1) clues--;
-    else cells[i] = saved;
-  }
-  return cells;
-}
-
-/**
- * Generate a puzzle with a unique solution. Easy/medium puzzles are
- * guaranteed to be solvable with singles only (no guessing); hard/expert
- * prefer puzzles that need more advanced candidate techniques.
- */
-export function generatePuzzle(difficulty: Difficulty, seed: number = randomSeed()): Puzzle {
-  const config = DIFFICULTY_CONFIG[difficulty];
-  const rng = createRng(seed);
-  let fallback: { puzzle: number[]; solution: number[] } | null = null;
-
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const solution = generateSolved(rng);
-    const puzzle = carve(solution, config.clues, rng);
-    const grid = puzzle.join("");
-    const singles = solvableWithSingles(grid);
-    if (config.singlesOnly ? singles : !singles) {
-      return { puzzle: grid, solution: solution.join(""), difficulty, seed };
-    }
-    if (!fallback) fallback = { puzzle, solution };
-  }
-  // Extremely unlikely; still a valid unique puzzle.
-  return { puzzle: fallback!.puzzle.join(""), solution: fallback!.solution.join(""), difficulty, seed };
-}
+// Seeds and clues. Puzzle generation lives in `puzzles.ts` (bank-driven) and
+// `generate.ts` (offline bank builder).
 
 export function randomSeed(): number {
   return Math.floor(Math.random() * 0xffffffff);

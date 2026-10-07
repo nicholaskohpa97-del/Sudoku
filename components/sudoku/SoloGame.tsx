@@ -7,11 +7,11 @@ import { formatDuration } from "@/lib/sudoku/client";
 import {
   DIFFICULTIES,
   DIFFICULTY_CONFIG,
-  generatePuzzle,
   MAX_MISTAKES,
   type Difficulty,
 } from "@/lib/sudoku/engine";
 import { awardSolve, type Award } from "@/lib/sudoku/profile";
+import { generatePuzzle } from "@/lib/sudoku/puzzles";
 import { dailyDifficulty, dailySeed, dayKey, starsFor } from "@/lib/sudoku/progress";
 import { sfx } from "@/lib/sudoku/sfx";
 import { recordSoloResult } from "@/lib/sudoku/stats";
@@ -317,12 +317,14 @@ function SoloGameInner({ mode }: { mode: SoloMode }) {
             <CalendarDays className="size-4" /> Daily · <span className={style.text}>{DIFFICULTY_CONFIG[difficulty].label}</span>
           </span>
         ) : (
-          <div className="flex gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 text-xs">
+          <div className="flex max-w-full gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.03] p-1 text-xs [scrollbar-width:none]">
             {DIFFICULTIES.map((d) => (
               <Link
                 key={d}
                 href={`/sudoku/play/${d}`}
-                className={`rounded-full px-3 py-1 font-display font-semibold transition ${d === difficulty ? DIFFICULTY_STYLE[d].chip : "text-stone-400 hover:text-stone-100"}`}
+                aria-current={d === difficulty ? "page" : undefined}
+                ref={d === difficulty ? (el) => el?.scrollIntoView({ inline: "center", block: "nearest" }) : undefined}
+                className={`shrink-0 rounded-full px-3 py-1 font-display font-semibold transition ${d === difficulty ? DIFFICULTY_STYLE[d].chip : "text-stone-400 hover:text-stone-100"}`}
               >
                 {DIFFICULTY_CONFIG[d].label}
               </Link>
